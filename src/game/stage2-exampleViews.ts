@@ -1,10 +1,3 @@
-import {
-  inspectionView,
-  opponentBidView,
-  passedResultView,
-  revealView,
-  soldResultView,
-} from './exampleViews';
 import type { Stage2View } from './stage2-contract';
 
 const prologue = {
@@ -14,7 +7,30 @@ const prologue = {
 } as const;
 
 const tutorial = { lotNumber: 1, sceneId: 'tutorial' } as const;
-const [bicycle, tool] = revealView.revealedFinds;
+const bicycle = { id: 'bicycle', name: 'Велосипед' } as const;
+const box = { id: 'box', name: 'Закрытая коробка' } as const;
+const visibleBox = { ...box, hint: null, canInspect: false } as const;
+const inspectedItems = [
+  {
+    ...bicycle,
+    canInspect: false,
+    hint: {
+      text: 'Рама потёрта. Если колёса ровные, велосипед ещё можно продать.',
+      estimatedSalePrice: { min: 25, max: 40 },
+    },
+  },
+  visibleBox,
+] as const;
+const closedAuction = {
+  ...tutorial,
+  visibleItems: inspectedItems,
+  currentPrice: null,
+  leadingBidder: null,
+  lastPlayerBid: null,
+  nextBidAmount: null,
+} as const;
+const reveal = { ...closedAuction, phase: 'reveal', purchasePrice: 30 } as const;
+const result = { ...closedAuction, phase: 'result', allowedActions: ['nextLot'] } as const;
 
 // Сценарии для просмотра экранов заданы вручную.
 export const stage2Views = {
@@ -40,44 +56,59 @@ export const stage2Views = {
     allowedActions: ['confirmRent', 'skipStory'],
   },
   inspection: {
-    ...inspectionView,
     ...tutorial,
+    phase: 'inspection',
     revision: 9,
+    bank: 100,
+    currentPrice: null,
+    leadingBidder: null,
+    lastPlayerBid: null,
+    nextBidAmount: 20,
+    visibleItems: [{ ...bicycle, canInspect: true, hint: null }, visibleBox],
+    allowedActions: ['inspect', 'bid', 'pass'],
   },
   bidding: {
-    ...opponentBidView,
     ...tutorial,
+    phase: 'bidding',
     revision: 11,
+    bank: 100,
+    currentPrice: 25,
+    leadingBidder: 'opponent',
     leaderName: 'Виктор',
+    lastPlayerBid: 20,
+    nextBidAmount: 30,
+    visibleItems: inspectedItems,
+    allowedActions: ['bid', 'pass'],
   },
   revealSealed: {
-    ...revealView,
-    ...tutorial,
+    ...reveal,
     revision: 12,
+    bank: 70,
     revenue: 0,
-    sealedBoxes: [{ id: 'box', name: 'Закрытая коробка' }],
-    revealedFinds: [bicycle],
+    sealedBoxes: [box],
+    revealedFinds: [{ ...bicycle, salePrice: 35 }],
     allowedActions: ['openBox', 'sellItem'],
   },
   revealPartial: {
-    ...revealView,
-    ...tutorial,
+    ...reveal,
     revision: 14,
     bank: 105,
     revenue: 35,
     sealedBoxes: [],
-    revealedFinds: [tool],
+    revealedFinds: [{ id: 'tool', name: 'Инструмент из коробки', salePrice: 10 }],
     allowedActions: ['sellItem', 'sellAll'],
   },
   sold: {
-    ...soldResultView,
-    ...tutorial,
+    ...result,
     revision: 15,
+    bank: 115,
+    receipt: { outcome: 'sold', purchasePrice: 30, revenue: 45, profit: 15 },
   },
   passed: {
-    ...passedResultView,
-    ...tutorial,
+    ...result,
     revision: 12,
+    bank: 100,
+    receipt: { outcome: 'passed', purchasePrice: 0, revenue: 0, profit: 0 },
   },
   recovery: {
     phase: 'recovery',

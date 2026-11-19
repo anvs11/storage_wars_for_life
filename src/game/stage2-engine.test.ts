@@ -72,6 +72,8 @@ describe('правила Stage 2', () => {
     const bought = step(state, 'bid');
     expect(getView(bought)).toEqual(stage2Views.revealSealed);
     expect(bought.bank).toBe(70);
+    expect(step(bought, 'bid')).toBe(bought);
+    expect(step(bought, 'pass')).toBe(bought);
     const partial = sellItem(bought, 'bicycle');
     expect(partial.bank).toBe(105);
     expect(partial.status).toBe(0);
@@ -88,9 +90,11 @@ describe('правила Stage 2', () => {
     expect(sold.status).toBe(2);
     expect(applyCommand(sold, sell)).toBe(sold);
     expect(step(sold, 'sellAll')).toBe(sold);
-    expect(getView(step(sold, 'nextLot'))).toMatchObject({
+    const nextLot = step(sold, 'nextLot');
+    expect(getView(nextLot)).toMatchObject({
       phase: 'inspection', sceneId: 'workshop', lotNumber: 2, bank: 115,
     });
+    expect(applyCommand(nextLot, bid)).toBe(nextLot);
   });
 
   it('сохраняет банк после паса и позволяет осмотреть велосипед уже на торгах', () => {
@@ -99,6 +103,14 @@ describe('правила Stage 2', () => {
     expect(step(initial, 'sortGarage')).toBe(initial);
     expect(step(initial, 'nextLot')).toBe(initial);
     expect(openBox(initial)).toBe(initial);
+    for (const itemId of ['box', 'missing']) {
+      expect(applyCommand(initial, { type: 'inspect', itemId, expectedRevision: initial.revision })).toBe(initial);
+    }
+    const earlyPass = step(initial, 'pass');
+    expect(getView(earlyPass)).toMatchObject({
+      phase: 'result', bank: 100, receipt: stage2Views.passed.receipt, allowedActions: ['nextLot'],
+    });
+    expect(getView(step(earlyPass, 'nextLot'))).toMatchObject({ phase: 'inspection', lotNumber: 2, bank: 100 });
     const bidding = step(initial, 'bid');
     expect(getView(bidding)).toMatchObject({
       phase: 'bidding', bank: 100, allowedActions: ['inspect', 'bid', 'pass'],
@@ -115,9 +127,12 @@ describe('правила Stage 2', () => {
     const initial = startAuction();
     const bidding = inspectBicycle(step(initial, 'bid'));
     for (const state of [initial, bidding, step(bidding, 'pass')]) {
-      expect(getView(state)).not.toHaveProperty('revealedFinds');
-      expect(getView(state)).not.toHaveProperty('lot');
-      expect(JSON.stringify(getView(state))).not.toContain('Инструмент из коробки');
+      const view = getView(state);
+      expect(view).not.toHaveProperty('revealedFinds');
+      expect(view).not.toHaveProperty('lot');
+      expect(JSON.stringify(view)).not.toContain('Инструмент из коробки');
+      if (!('visibleItems' in view)) throw new Error('Ожидается представление гаража');
+      for (const item of view.visibleItems) expect(item).not.toHaveProperty('salePrice');
     }
     const bought = step(bidding, 'bid');
     expect(getView(bought)).toMatchObject({
@@ -174,10 +189,13 @@ describe('правила Stage 2', () => {
     expect(getView(step(ready, 'bid'))).toMatchObject({ phase: 'reveal', purchasePrice: 20, bank: 0 });
   });
 
-  it('отклоняет повышение на $30 при банке $29 и оставляет игроку пас', () => {
+  it('отклоняет ставку при нехватке доллара и принимает её при точной сумме', () => {
     const bidding = { ...step(startAuction(), 'bid'), bank: 29 };
     expect(getView(bidding)).toMatchObject({ nextBidAmount: 30, allowedActions: ['inspect', 'pass'] });
     expect(step(bidding, 'bid')).toBe(bidding);
     expect(step(bidding, 'pass').bank).toBe(29);
+    expect(getView(step({ ...bidding, bank: 30 }, 'bid'))).toMatchObject({
+      phase: 'reveal', purchasePrice: 30, bank: 0,
+    });
   });
 });
