@@ -1,0 +1,124 @@
+body:has(.story) {
+  margin: 0;
+  background: #11191a;
+}
+
+.story {
+  box-sizing: border-box;
+  display: grid;
+  align-content: center;
+  gap: 12px;
+  min-height: 100svh;
+  max-width: 1440px;
+  margin-inline: auto;
+  padding: clamp(12px, 2.5vw, 32px);
+  color: #f7f1e6;
+  font: 1rem/1.48 Inter, system-ui, sans-serif;
+  overflow-wrap: anywhere;
+}
+
+.story *,
+.story *::before,
+.story *::after {
+  box-sizing: inherit;
+}
+
+.story__image {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  border: 1px solid #465552;
+  border-radius: 14px;
+  background: #192424;
+}
+
+.story__panel {
+  display: grid;
+  align-content: center;
+  gap: 20px;
+  min-width: 0;
+  padding: clamp(16px, 2vw, 32px);
+  border: 1px solid #465552;
+  border-radius: 14px;
+  background: #1c2929;
+}
+
+.story__copy {
+  display: grid;
+  gap: 10px;
+}
+
+.story__title,
+.story__speaker,
+.story__text,
+.story__caption,
+.story__equation {
+  margin: 0;
+}
+
+.story__title {
+  color: #f7f1e6;
+  font-size: clamp(1.5rem, 2.8vw, 2.5rem);
+  line-height: 1.1;
+}
+
+.story__speaker,
+.story__equation {
+  color: #ffc76b;
+  font-weight: 700;
+}
+
+.story__equation {
+  font-size: clamp(1.3rem, 2vw, 1.85rem);
+  font-variant-numeric: tabular-nums;
+}
+
+.story__caption {
+  color: #c1cac4;
+  font-size: 0.875rem;
+}
+
+.story__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.story__button {
+  flex: 1 1 auto;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid #81908b;
+  border-radius: 8px;
+  color: #f7f1e6;
+  background: #283737;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.story__button--primary {
+  border-color: transparent;
+  color: #231b12;
+  background: #ffc76b;
+}
+
+.story__button:hover {
+  filter: brightness(1.12);
+}
+
+.story__button:focus-visible,
+.story__copy:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+@media (min-width: 800px) {
+  .story {
+    grid-template-columns: minmax(0, 2fr) minmax(290px, 1fr);
+    gap: 24px;
+  }
+}
