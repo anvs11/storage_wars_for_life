@@ -36,6 +36,13 @@ describe('учебный аукцион', () => {
   });
 
   it('после паса сохраняет $100 и открывает следующий лот', () => {
+    const earlyPass = applyCommand(newGame(), { type: 'pass', expectedRevision: 0 });
+    expect(getView(earlyPass)).toEqual({
+      ...passedResultView,
+      revision: 1,
+      visibleItems: inspectionView.visibleItems.map((item) => ({ ...item, canInspect: false })),
+    });
+
     const passed = applyCommand(playToOpponentBid(), { type: 'pass', expectedRevision: 2 });
     expect(getView(passed)).toEqual(passedResultView);
     const next = applyCommand(passed, { type: 'nextLot', expectedRevision: 3 });
@@ -74,6 +81,12 @@ describe('учебный аукцион', () => {
   it('не раскрывает точные цены и содержимое коробки до покупки и после паса', () => {
     const initial = newGame();
     const bidding = applyCommand(initial, { type: 'bid', expectedRevision: 0 });
+    expect(getView(bidding)).toEqual({
+      ...opponentBidView,
+      revision: 1,
+      visibleItems: inspectionView.visibleItems,
+      allowedActions: inspectionView.allowedActions,
+    });
     const inspected = applyCommand(bidding, { type: 'inspect', itemId: 'bicycle', expectedRevision: 1 });
     const passed = applyCommand(inspected, { type: 'pass', expectedRevision: 2 });
     expect(getView(inspected)).toEqual(opponentBidView);
