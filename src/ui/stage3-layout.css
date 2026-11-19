@@ -1,0 +1,241 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #11191a;
+  color: #f7f1e6;
+  font: 1rem/1.45 Inter, system-ui, sans-serif;
+}
+
+.layout {
+  --muted: #c1cac4;
+  --surface: #1c2929;
+  --line: #465552;
+  --amber: #ffc76b;
+  max-width: 1280px;
+  margin-inline: auto;
+  padding: clamp(12px, 2.5vw, 32px);
+  overflow-wrap: anywhere;
+}
+
+h1,
+h2,
+h3,
+p,
+dl,
+dd {
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(1.375rem, 3.4vw, 2.5rem);
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+}
+
+h2 {
+  font-size: 1.125rem;
+}
+
+h3 {
+  font-size: 1rem;
+}
+
+p,
+.lot-price span,
+.bank span {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.top,
+.progress-top,
+.lot,
+.offer-row,
+.receipt div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.top {
+  margin-bottom: 12px;
+}
+
+.bank {
+  display: flex;
+  align-items: baseline;
+  flex: none;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.bank strong,
+.progress-top strong,
+.points {
+  color: var(--amber);
+}
+
+.progress,
+.auctions,
+.spending,
+.airport-entry,
+.panel {
+  min-width: 0;
+  padding: clamp(12px, 2vw, 20px);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.progress {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+progress {
+  display: block;
+  width: 100%;
+  height: 8px;
+  accent-color: var(--amber);
+}
+
+.market,
+.stack,
+.panel {
+  display: grid;
+  gap: 10px;
+}
+
+.stack {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lot,
+.offer {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.lot-ready {
+  border-color: var(--amber);
+  background: #2e2c23;
+}
+
+.lot-ready p {
+  color: var(--amber);
+}
+
+.lot-price {
+  flex: none;
+  text-align: right;
+}
+
+.lot-price span,
+.lot-price strong {
+  display: block;
+}
+
+.offer-price {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
+  padding-block: 4px;
+  font-size: 0.875rem;
+}
+
+.offer-price .points {
+  text-align: end;
+}
+
+.airport-entry {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+
+.sample {
+  display: none;
+  max-width: 680px;
+  margin-inline: auto;
+}
+
+.sample:target {
+  display: block;
+}
+
+.layout:has(.sample:target) .hub {
+  display: none;
+}
+
+.receipt {
+  margin-bottom: 4px;
+}
+
+.receipt div {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.receipt dt {
+  color: var(--muted);
+}
+
+.receipt dd {
+  font-weight: 700;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.button {
+  display: inline-grid;
+  place-items: center;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid #81908b;
+  border-radius: 8px;
+  background: #283737;
+  color: inherit;
+  text-align: center;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.button.primary {
+  border-color: transparent;
+  background: var(--amber);
+  color: #231b12;
+}
+
+.button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+@media (min-width: 800px) {
+  .market {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: min-content 1fr;
+    grid-template-areas: "auctions spending" "airport spending";
+    gap: 16px;
+    align-items: start;
+  }
+
+  .auctions { grid-area: auctions; }
+  .spending { grid-area: spending; }
+  .airport-entry { grid-area: airport; }
+}
