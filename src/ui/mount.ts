@@ -1,5 +1,7 @@
-import type { Command, GameView, Mount } from '../game/contract';
-import garageImage from './assets/tutorial-garage.png';
+import type { Command, Dispatch, GameView, Mount } from '../game/contract';
+import type { Stage2AuctionView, Stage2Dispatch, Stage2Mount, Stage2View } from '../game/stage2-contract';
+import { garageScenes } from './garage-scenes';
+import { mountStory } from './story';
 import './garage.css';
 
 function element<K extends keyof HTMLElementTagNameMap>(
@@ -17,13 +19,29 @@ function dollars(amount: number): string {
   return amount < 0 ? `−$${Math.abs(amount)}` : `$${amount}`;
 }
 
+function bankFor(amount: number): HTMLParagraphElement {
+  const bank = element('p', 'garage__bank');
+  bank.append(element('span', '', 'Банк'), element('strong', '', dollars(amount)));
+  return bank;
+}
+
+function actionButton(label: string, className: string, activate: () => void): HTMLButtonElement {
+  const control = element('button', className, label);
+  control.type = 'button';
+  control.addEventListener('click', activate);
+  control.addEventListener('keydown', (event) => {
+    if (event.repeat && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
+  });
+  return control;
+}
+
 function addFact(list: HTMLDListElement, label: string, value: string): void {
   const row = element('div', 'garage__fact');
   row.append(element('dt', '', label), element('dd', '', value));
   list.append(row);
 }
 
-function factsFor(view: GameView): HTMLDListElement {
+function factsFor(view: GameView | Stage2AuctionView): HTMLDListElement {
   const facts = element('dl', 'garage__facts');
   switch (view.phase) {
     case 'inspection':
@@ -31,12 +49,16 @@ function factsFor(view: GameView): HTMLDListElement {
       break;
     case 'bidding':
       addFact(facts, 'Ваша ставка', dollars(view.lastPlayerBid));
-      addFact(facts, 'Соперник', dollars(view.currentPrice));
+      addFact(facts, 'leaderName' in view ? view.leaderName : 'Соперник', dollars(view.currentPrice));
       break;
     case 'reveal':
       addFact(facts, 'Цена покупки', dollars(view.purchasePrice));
-      for (const find of view.revealedFinds) {
-        addFact(facts, find.name, dollars(find.salePrice));
+      if ('revenue' in view) {
+        addFact(facts, 'Получено от продаж', dollars(view.revenue));
+      } else {
+        for (const find of view.revealedFinds) {
+          addFact(facts, find.name, dollars(find.salePrice));
+        }
       }
       break;
     case 'result': {
@@ -47,7 +69,8 @@ function factsFor(view: GameView): HTMLDListElement {
         addFact(facts, 'Покупка', dollars(receipt.purchasePrice));
         addFact(facts, 'Выручка', dollars(receipt.revenue));
         const prefix = receipt.profit > 0 ? '+' : '';
-        addFact(facts, 'Прибыль', prefix + dollars(receipt.profit));
+        const label = 'lotNumber' in view && receipt.profit < 0 ? 'Убыток' : 'Прибыль';
+        addFact(facts, label, prefix + dollars(receipt.profit));
         addFact(facts, 'Банк', dollars(view.bank));
       }
       break;
@@ -56,36 +79,47 @@ function factsFor(view: GameView): HTMLDListElement {
   return facts;
 }
 
-export const mount: Mount = (root, view, dispatch) => {
+type AuctionScreen =
+  | { readonly stage: 1; readonly view: GameView; readonly dispatch: Dispatch }
+  | { readonly stage: 2; readonly view: Stage2AuctionView; readonly dispatch: Stage2Dispatch };
+
+function mountAuction(root: HTMLElement, auction: AuctionScreen): void {
+  const { view, dispatch } = auction;
   const previousFocus = root.contains(document.activeElement) ? document.activeElement : null;
   const focusKey = previousFocus?.getAttribute('data-garage-focus');
-  const allowed = new Set<Command['type']>(view.allowedActions);
+  const allowed = new Set(view.allowedActions);
   const buttons = new Map<string, HTMLButtonElement>();
 
-  function button(label: string, command: Command, key: string, className: string): HTMLButtonElement {
-    const control = element('button', className, label);
-    control.type = 'button';
+  function bindButton(label: string, key: string, className: string, activate: () => void): HTMLButtonElement {
+    const control = actionButton(label, className, activate);
     control.dataset.garageFocus = key;
-    control.addEventListener('click', () => dispatch(command));
-    control.addEventListener('keydown', (event) => {
-      if (event.repeat && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
-    });
     buttons.set(key, control);
     return control;
   }
 
+  function button(label: string, command: Command, key: string, className: string): HTMLButtonElement {
+    return bindButton(label, key, className, () => dispatch(command));
+  }
+
   const screen = element('section', 'garage');
-  screen.setAttribute('aria-label', 'Учебный гараж');
+  const artwork = 'sceneId' in view ? garageScenes[view.sceneId] : garageScenes.tutorial;
+  screen.setAttribute('aria-label', artwork.title);
   const header = element('header', 'garage__header');
-  const bank = element('p', 'garage__bank');
-  bank.append(element('span', '', 'Банк'), element('strong', '', dollars(view.bank)));
-  header.append(element('h1', 'garage__title', 'Учебный гараж'), bank);
+  const title = element('h1', 'garage__title', artwork.title);
+  title.tabIndex = -1;
+  title.dataset.garageFocus = 'title';
+  const titleGroup = element('div', '');
+  if ('lotNumber' in view) {
+    titleGroup.append(element('p', 'garage__lot', `Лот №${view.lotNumber}`));
+  }
+  titleGroup.append(title);
+  header.append(titleGroup, bankFor(view.bank));
 
   const layout = element('div', 'garage__layout');
   const scene = element('div', 'garage__scene');
   const photo = element('img', 'garage__photo');
-  photo.src = garageImage;
-  photo.alt = 'Открытый гараж. Слева велосипед, справа заклеенная коробка.';
+  photo.src = artwork.image;
+  photo.alt = artwork.alt;
   const items = element('ul', 'garage__items');
   const hints = element('div', 'garage__hints');
   const inspected = new Map<string, HTMLElement>();
@@ -148,13 +182,49 @@ export const mount: Mount = (root, view, dispatch) => {
     controls.append(button('Пас', { type: 'pass', expectedRevision: view.revision }, 'pass', 'garage__button'));
   }
   if (allowed.has('sellAll')) {
-    controls.append(button('Продать всё', { type: 'sellAll', expectedRevision: view.revision }, 'sellAll', 'garage__button garage__button--primary'));
+    controls.append(button(
+      auction.stage === 2 ? 'Продать остаток' : 'Продать всё',
+      { type: 'sellAll', expectedRevision: view.revision },
+      'sellAll',
+      'garage__button garage__button--primary',
+    ));
   }
   if (allowed.has('nextLot')) {
     controls.append(button('Следующий гараж', { type: 'nextLot', expectedRevision: view.revision }, 'nextLot', 'garage__button garage__button--primary'));
   }
 
   panel.append(heading, factsFor(view));
+  if (auction.stage === 2 && auction.view.phase === 'reveal') {
+    const { revision, sealedBoxes, revealedFinds } = auction.view;
+    const inventory = element('ul', 'garage__inventory');
+    for (const box of sealedBoxes) {
+      const card = element('li', 'garage__inventory-item');
+      card.append(element('strong', '', box.name));
+      if (allowed.has('openBox')) {
+        const open = bindButton('Открыть', `box:${box.id}`, 'garage__button', () => {
+          auction.dispatch({ type: 'openBox', boxId: box.id, expectedRevision: revision });
+        });
+        open.setAttribute('aria-label', `Открыть: ${box.name}`);
+        card.append(open);
+      }
+      inventory.append(card);
+    }
+    for (const find of revealedFinds) {
+      const card = element('li', 'garage__inventory-item');
+      const description = element('div', 'garage__inventory-description');
+      description.append(element('strong', '', find.name), element('span', '', dollars(find.salePrice)));
+      card.append(description);
+      if (allowed.has('sellItem')) {
+        const sell = bindButton('Продать', `find:${find.id}`, 'garage__button', () => {
+          auction.dispatch({ type: 'sellItem', itemId: find.id, expectedRevision: revision });
+        });
+        sell.setAttribute('aria-label', `Продать: ${find.name}`);
+        card.append(sell);
+      }
+      inventory.append(card);
+    }
+    if (inventory.childElementCount > 0) panel.append(inventory);
+  }
   if (auctionOpen && !allowed.has('bid')) {
     panel.append(element('p', 'garage__prompt', `Следующая ставка ${dollars(view.nextBidAmount)} недоступна.`));
   }
@@ -163,9 +233,55 @@ export const mount: Mount = (root, view, dispatch) => {
   screen.append(header, layout);
   root.replaceChildren(screen);
 
-  if (focusKey) {
+  if (auction.stage === 2 && view.phase === 'inspection' &&
+    ((previousFocus && !focusKey) || focusKey === 'nextLot' || focusKey === 'sortGarage' || focusKey === 'title')) {
+    title.focus();
+  } else if (focusKey) {
     const target = inspected.get(focusKey) ??
       (focusKey === 'bid' ? heading : buttons.get(focusKey)) ?? heading;
     target.focus();
+  }
+}
+
+export const mount: Mount = (root, view, dispatch) => {
+  mountAuction(root, { stage: 1, view, dispatch });
+};
+
+function mountRecovery(root: HTMLElement, view: Extract<Stage2View, { phase: 'recovery' }>, dispatch: Stage2Dispatch): void {
+  const restoreFocus = root.contains(document.activeElement);
+  const screen = element('section', 'garage');
+  const header = element('header', 'garage__header');
+  const title = element('h1', 'garage__title', 'Восстановление банка');
+  title.tabIndex = -1;
+  header.append(title, bankFor(view.bank));
+
+  const panel = element('div', 'garage__panel garage__panel--recovery');
+  const facts = element('dl', 'garage__facts');
+  addFact(facts, 'Минимальная ставка', dollars(view.minimumBid));
+  addFact(facts, 'Оплата за сортировку', dollars(view.reward));
+  panel.append(facts);
+
+  if (view.allowedActions.includes('sortGarage')) {
+    const sort = actionButton('Рассортировать гараж', 'garage__button garage__button--primary', () => {
+      dispatch({ type: 'sortGarage', expectedRevision: view.revision });
+    });
+    sort.dataset.garageFocus = 'sortGarage';
+    panel.append(sort);
+  }
+  screen.append(header, panel);
+  root.replaceChildren(screen);
+  if (restoreFocus) title.focus();
+}
+
+export const mountStage2: Stage2Mount = (root, view, dispatch) => {
+  switch (view.phase) {
+    case 'prologue':
+      mountStory(root, view, dispatch);
+      break;
+    case 'recovery':
+      mountRecovery(root, view, dispatch);
+      break;
+    default:
+      mountAuction(root, { stage: 2, view, dispatch });
   }
 };

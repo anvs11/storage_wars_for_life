@@ -1,22 +1,11 @@
+import type { Stage2Command, Stage2Dispatch, Stage2View } from '../game/stage2-contract';
 import door from './assets/story-door.jpg';
 import rain from './assets/story-rain.jpg';
 import driver from './assets/story-driver.jpg';
 import rental from './assets/story-rental.jpg';
 import './story.css';
 
-export type StoryStep =
-  | { readonly step: 'door' }
-  | { readonly step: 'rain' }
-  | { readonly step: 'dialogue'; readonly line: 0 | 1 | 2 | 3 | 4 | 5 }
-  | {
-      readonly step: 'rent';
-      readonly grant: number;
-      readonly rent: number;
-      readonly remaining: number;
-      readonly rentalWeeks: number;
-    };
-
-type StoryAction = 'storyNext' | 'skipStory' | 'confirmRent';
+type StoryView = Extract<Stage2View, { phase: 'prologue' }>;
 
 const frames = {
   door: {
@@ -59,10 +48,10 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, 
 
 export function mountStory(
   root: HTMLElement,
-  story: StoryStep,
-  allowedActions: readonly string[],
-  dispatch: (action: StoryAction) => void,
+  view: StoryView,
+  dispatch: Stage2Dispatch,
 ): void {
+  const { story, revision, allowedActions } = view;
   const restoreFocus = root.contains(document.activeElement);
   const frame = frames[story.step];
   const screen = node('section', 'story');
@@ -119,7 +108,8 @@ export function mountStory(
     if (!allowedActions.includes(action)) continue;
     const button = node('button', action === primary ? 'story__button story__button--primary' : 'story__button', label);
     button.type = 'button';
-    button.addEventListener('click', () => dispatch(action));
+    const command: Stage2Command = { type: action, expectedRevision: revision };
+    button.addEventListener('click', () => dispatch(command));
     button.addEventListener('keydown', (event) => {
       if (event.repeat && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
     });

@@ -39,6 +39,12 @@ body:has(.garage) {
   letter-spacing: -0.035em;
 }
 
+.garage__lot {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
 .garage__bank {
   flex: none;
   display: flex;
@@ -177,6 +183,39 @@ body:has(.garage) {
   text-align: end;
 }
 
+.garage__inventory {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.garage__inventory-item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.garage__inventory-description {
+  display: grid;
+  gap: 2px;
+}
+
+.garage__inventory-description span {
+  color: var(--amber);
+  font-weight: 700;
+}
+
+.garage__panel--recovery {
+  max-width: 520px;
+}
+
 .garage__controls {
   display: flex;
   gap: 8px;
@@ -220,6 +259,7 @@ body:has(.garage) {
 }
 
 .garage__button:focus-visible,
+.garage__title:focus-visible,
 .garage__heading:focus-visible,
 .garage__hint:focus-visible {
   outline: 2px solid #fff;
