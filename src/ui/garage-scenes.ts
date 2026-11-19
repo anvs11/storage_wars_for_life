@@ -1,6 +1,8 @@
 import tutorial from './assets/tutorial-garage.png';
 import workshop from './assets/garage-workshop.jpg';
 import household from './assets/garage-household.jpg';
+import selected from './assets/garage-selected.jpg';
+import antiques from './assets/garage-antiques.jpg';
 
 export const garageScenes = {
   tutorial: {
@@ -17,5 +19,15 @@ export const garageScenes = {
     title: 'Домашний гараж',
     image: household,
     alt: 'Гараж с деревянными балками, встроенными полками и тёплым светом из бокового окна.',
+  },
+  selected: {
+    title: 'Отборный гараж',
+    image: selected,
+    alt: 'Просторный склад с синими металлическими стенами, высоким окном и пустым стеллажом.',
+  },
+  antiques: {
+    title: 'Антикварный гараж',
+    image: antiques,
+    alt: 'Старый кирпичный гараж с тёмными балками, каменным полом и тёплым светом.',
   },
 } as const;

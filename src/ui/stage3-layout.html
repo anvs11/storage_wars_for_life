@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Stage 3 · Макет экрана между торгами</title>
+    <link rel="stylesheet" href="./stage3-layout.css">
+  </head>
+  <body>
+    <main class="layout">
+      <section class="hub" id="hub" tabindex="-1">
+        <header class="top">
+          <h1>Между торгами</h1>
+          <div class="bank"><span>Банк</span> <strong>$42</strong></div>
+        </header>
+
+        <section class="progress" aria-labelledby="rating">
+          <div class="progress-top">
+            <h2 id="rating">Социальный рейтинг</h2>
+            <strong>8 / 18</strong>
+          </div>
+          <progress aria-label="Рейтинг до антикварных торгов" value="8" max="18">8 из 18</progress>
+          <p>До антикварных торгов ещё <strong>10 очков</strong></p>
+        </section>
+
+        <div class="market">
+          <section class="auctions" aria-labelledby="auctions">
+            <h2 id="auctions">Аукционы</h2>
+            <ul class="stack">
+              <li class="lot lot-ready">
+                <div>
+                  <h3>Обычные склады</h3>
+                  <p>Доступно</p>
+                </div>
+                <div class="lot-price"><span>Старт</span> <strong>$20</strong></div>
+              </li>
+              <li class="lot">
+                <div>
+                  <h3>Отборные склады</h3>
+                  <p>Рейтинг подходит. Не хватает $8.</p>
+                </div>
+                <div class="lot-price"><span>Старт</span> <strong>$50</strong></div>
+              </li>
+              <li class="lot">
+                <div>
+                  <h3>Антикварные торги</h3>
+                  <p>Откроются при 18 очках</p>
+                </div>
+                <div class="lot-price"><span>Старт</span> <strong>$90</strong></div>
+              </li>
+            </ul>
+          </section>
+
+          <section class="spending" aria-labelledby="spending">
+            <h2 id="spending">Траты и рейтинг</h2>
+            <ul class="stack">
+              <li class="offer">
+                <h3>Закусочная</h3>
+                <div class="offer-price"><span>Обед</span> <strong>$5</strong> <span class="points">+1 к рейтингу</span></div>
+                <div class="offer-price"><span>С чаевыми</span> <strong>$7</strong> <span class="points">+2 к рейтингу</span></div>
+              </li>
+              <li class="offer offer-row">
+                <div><h3>Кино</h3><p class="points">+2 к рейтингу</p></div>
+                <strong>$10</strong>
+              </li>
+              <li class="offer offer-row">
+                <div><h3>Театр</h3><p>С 18 очков · <span class="points">+3 к рейтингу</span></p></div>
+                <strong>$20</strong>
+              </li>
+              <li class="offer offer-row">
+                <div><h3>Ресторан</h3><p>С 18 очков · <span class="points">+4 к рейтингу</span></p></div>
+                <strong>$25</strong>
+              </li>
+              <li class="offer offer-row">
+                <div><h3>Улучшение дома</h3><p>Уже куплено · <span class="points">+5 к рейтингу</span></p></div>
+                <strong>$150</strong>
+              </li>
+              <li class="offer offer-row">
+                <div><h3>Машина</h3><p>Не хватает $58 · <span class="points">+5 к рейтингу</span></p></div>
+                <strong>$100</strong>
+              </li>
+            </ul>
+          </section>
+
+          <section class="airport-entry" aria-labelledby="airport">
+            <h2 id="airport">Аэропорт</h2>
+            <p>Закрытый чемодан за $25</p>
+            <a class="button" href="#call">Позвонить в аэропорт</a>
+          </section>
+        </div>
+      </section>
+
+      <section class="sample" id="call" tabindex="-1">
+        <header class="top">
+          <h1>Аэропорт</h1>
+          <div class="bank"><span>Банк</span> <strong>$42</strong></div>
+        </header>
+        <div class="panel">
+          <h2>Закрытый чемодан</h2>
+          <p>Содержимое станет известно после открытия.</p>
+          <dl class="receipt"><div><dt>Цена</dt><dd>$25</dd></div></dl>
+          <div class="actions">
+            <a class="button primary" href="#sealed">Купить за $25</a>
+            <a class="button" href="#hub">Вернуться к торгам</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="sample" id="sealed" tabindex="-1">
+        <header class="top">
+          <h1>Багаж</h1>
+          <div class="bank"><span>Банк</span> <strong>$17</strong></div>
+        </header>
+        <div class="panel offer-row">
+          <h2>Закрытый чемодан</h2>
+          <a class="button primary" href="#opened">Открыть</a>
+        </div>
+      </section>
+
+      <section class="sample" id="opened" tabindex="-1">
+        <header class="top">
+          <h1>Багаж</h1>
+          <div class="bank"><span>Банк</span> <strong>$17</strong></div>
+        </header>
+        <div class="panel offer-row">
+          <div><h2>Дорожный аксессуар</h2><p>Цена продажи $4</p></div>
+          <a class="button primary" href="#receipt">Продать</a>
+        </div>
+      </section>
+
+      <section class="sample" id="receipt" tabindex="-1">
+        <header class="top">
+          <h1>Квитанция</h1>
+          <div class="bank"><span>Банк</span> <strong>$21</strong></div>
+        </header>
+        <div class="panel">
+          <dl class="receipt">
+            <div><dt>Покупка</dt><dd>$25</dd></div>
+            <div><dt>Выручка</dt><dd>$4</dd></div>
+            <div><dt>Убыток</dt><dd>−$21</dd></div>
+          </dl>
+          <a class="button primary" href="#hub">К аукционам</a>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
