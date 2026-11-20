@@ -1,0 +1,71 @@
+.hub {
+  max-width: 1120px;
+}
+
+.hub__section {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.hub__status {
+  gap: 6px;
+}
+
+.hub__progress {
+  width: 100%;
+  height: 14px;
+  accent-color: var(--amber);
+}
+
+.hub__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hub__card {
+  align-content: start;
+  gap: 4px;
+  padding: 10px;
+}
+
+.hub__card .garage__button {
+  width: 100%;
+}
+
+.hub__name {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.hub__detail,
+.hub__reason {
+  margin: 0;
+  color: var(--muted);
+  font-size: .875rem;
+}
+
+.hub__reason {
+  color: var(--amber);
+}
+
+.hub__offer + .hub__offer {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.hub__offer {
+  display: grid;
+  gap: 4px;
+}
+
+@media (min-width: 660px) {
+  .hub__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

@@ -1,46 +1,17 @@
 import type { Stage2AuctionView, Stage2Command, Stage2Dispatch, Stage2Mount, Stage2View } from '../game/stage2-contract';
+import type { Stage3AuctionView, Stage3Mount } from '../game/stage3-contract';
+import { mountBaggage } from './baggage';
+import { actionButton, addFact, bankFor, dollars, element } from './dom';
 import { garageScenes } from './garage-scenes';
+import { mountHub } from './hub';
+import { inventoryFor, receiptFacts, saleFacts } from './inventory';
 import { mountStory } from './story';
 import './garage.css';
+import './stage3.css';
 
-function element<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
+type AuctionView = Stage2AuctionView | Stage3AuctionView;
 
-function dollars(amount: number): string {
-  return amount < 0 ? `−$${Math.abs(amount)}` : `$${amount}`;
-}
-
-function bankFor(amount: number): HTMLParagraphElement {
-  const bank = element('p', 'garage__bank');
-  bank.append(element('span', '', 'Банк'), element('strong', '', dollars(amount)));
-  return bank;
-}
-
-function actionButton(label: string, className: string, activate: () => void): HTMLButtonElement {
-  const control = element('button', className, label);
-  control.type = 'button';
-  control.addEventListener('click', activate);
-  control.addEventListener('keydown', (event) => {
-    if (event.repeat && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
-  });
-  return control;
-}
-
-function addFact(list: HTMLDListElement, label: string, value: string): void {
-  const row = element('div', 'garage__fact');
-  row.append(element('dt', '', label), element('dd', '', value));
-  list.append(row);
-}
-
-function factsFor(view: Stage2AuctionView): HTMLDListElement {
+function factsFor(view: AuctionView): HTMLDListElement {
   const facts = element('dl', 'garage__facts');
   switch (view.phase) {
     case 'inspection':
@@ -51,28 +22,14 @@ function factsFor(view: Stage2AuctionView): HTMLDListElement {
       addFact(facts, view.leaderName, dollars(view.currentPrice));
       break;
     case 'reveal':
-      addFact(facts, 'Цена покупки', dollars(view.purchasePrice));
-      addFact(facts, 'Получено от продаж', dollars(view.revenue));
-      break;
-    case 'result': {
-      const receipt = view.receipt;
-      if (receipt.outcome === 'passed') {
-        addFact(facts, 'Списано', dollars(receipt.purchasePrice));
-      } else {
-        addFact(facts, 'Покупка', dollars(receipt.purchasePrice));
-        addFact(facts, 'Выручка', dollars(receipt.revenue));
-        const prefix = receipt.profit > 0 ? '+' : '';
-        const label = receipt.profit < 0 ? 'Убыток' : 'Прибыль';
-        addFact(facts, label, prefix + dollars(receipt.profit));
-        addFact(facts, 'Банк', dollars(view.bank));
-      }
-      break;
-    }
+      return saleFacts(view);
+    case 'result':
+      return receiptFacts(view.receipt, view.bank);
   }
   return facts;
 }
 
-function mountAuction(root: HTMLElement, view: Stage2AuctionView, dispatch: Stage2Dispatch): void {
+function mountAuction(root: HTMLElement, view: AuctionView, dispatch: Stage2Dispatch): void {
   const previousFocus = root.contains(document.activeElement) ? document.activeElement : null;
   const focusKey = previousFocus?.getAttribute('data-garage-focus');
   const allowed = new Set(view.allowedActions);
@@ -171,46 +128,12 @@ function mountAuction(root: HTMLElement, view: Stage2AuctionView, dispatch: Stag
     ));
   }
   if (allowed.has('nextLot')) {
-    controls.append(button('Следующий гараж', { type: 'nextLot', expectedRevision: view.revision }, 'nextLot', 'garage__button garage__button--primary'));
+    controls.append(button('tier' in view ? 'К выбору торгов' : 'Следующий гараж', { type: 'nextLot', expectedRevision: view.revision }, 'nextLot', 'garage__button garage__button--primary'));
   }
 
   panel.append(heading, factsFor(view));
   if (view.phase === 'reveal') {
-    const { revision, sealedBoxes, revealedFinds } = view;
-    const inventory = element('ul', 'garage__inventory');
-    for (const box of sealedBoxes) {
-      const card = element('li', 'garage__inventory-item');
-      card.append(element('strong', '', box.name));
-      if (allowed.has('openBox')) {
-        const open = button(
-          'Открыть',
-          { type: 'openBox', boxId: box.id, expectedRevision: revision },
-          `box:${box.id}`,
-          'garage__button',
-        );
-        open.setAttribute('aria-label', `Открыть: ${box.name}`);
-        card.append(open);
-      }
-      inventory.append(card);
-    }
-    for (const find of revealedFinds) {
-      const card = element('li', 'garage__inventory-item');
-      const description = element('div', 'garage__inventory-description');
-      description.append(element('strong', '', find.name), element('span', '', dollars(find.salePrice)));
-      card.append(description);
-      if (allowed.has('sellItem')) {
-        const sell = button(
-          'Продать',
-          { type: 'sellItem', itemId: find.id, expectedRevision: revision },
-          `find:${find.id}`,
-          'garage__button',
-        );
-        sell.setAttribute('aria-label', `Продать: ${find.name}`);
-        card.append(sell);
-      }
-      inventory.append(card);
-    }
-    if (inventory.childElementCount > 0) panel.append(inventory);
+    panel.append(inventoryFor(view, button));
   }
   if (auctionOpen && !allowed.has('bid')) {
     panel.append(element('p', 'garage__prompt', `Следующая ставка ${dollars(view.nextBidAmount)} недоступна.`));
@@ -223,10 +146,9 @@ function mountAuction(root: HTMLElement, view: Stage2AuctionView, dispatch: Stag
   if (view.phase === 'inspection' &&
     ((previousFocus && !focusKey) || focusKey === 'nextLot' || focusKey === 'sortGarage' || focusKey === 'title')) {
     title.focus();
-  } else if (focusKey) {
-    const target = inspected.get(focusKey) ??
-      (focusKey === 'bid' ? heading : buttons.get(focusKey)) ?? heading;
-    target.focus();
+  } else if (previousFocus) {
+    const target = focusKey && focusKey !== 'bid' ? inspected.get(focusKey) ?? buttons.get(focusKey) : null;
+    (target || heading).focus();
   }
 }
 
@@ -263,6 +185,25 @@ export const mountStage2: Stage2Mount = (root, view, dispatch) => {
       break;
     case 'recovery':
       mountRecovery(root, view, dispatch);
+      break;
+    default:
+      mountAuction(root, view, dispatch);
+  }
+};
+
+export const mountStage3: Stage3Mount = (root, view, dispatch) => {
+  switch (view.phase) {
+    case 'hub':
+      mountHub(root, view, dispatch);
+      break;
+    case 'airportOffer':
+    case 'baggageInventory':
+    case 'baggageResult':
+      mountBaggage(root, view, dispatch);
+      break;
+    case 'prologue':
+    case 'recovery':
+      mountStage2(root, view, dispatch);
       break;
     default:
       mountAuction(root, view, dispatch);
