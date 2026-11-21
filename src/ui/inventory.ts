@@ -53,7 +53,7 @@ export function receiptFacts(receipt: SoldReceipt | PassedReceipt, bank: number)
   }
   addFact(facts, 'Покупка', dollars(receipt.purchasePrice));
   addFact(facts, 'Выручка', dollars(receipt.revenue));
-  const label = receipt.profit < 0 ? 'Убыток' : 'Прибыль';
+  const label = receipt.profit === 0 ? 'Без прибыли и убытка' : receipt.profit < 0 ? 'Убыток' : 'Прибыль';
   addFact(facts, label, (receipt.profit > 0 ? '+' : '') + dollars(receipt.profit));
   addFact(facts, 'Банк', dollars(bank));
   return facts;

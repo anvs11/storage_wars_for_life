@@ -87,7 +87,7 @@ function mountAuction(root: HTMLElement, view: AuctionView, dispatch: Stage2Disp
         hint.append(element('strong', '', item.name), document.createTextNode(` ${item.hint.text}`));
         const estimate = item.hint.estimatedSalePrice;
         if (estimate) {
-          hint.append(element('span', 'garage__estimate', `Оценка ${dollars(estimate.min)}–${dollars(estimate.max)}`));
+          hint.append(element('span', 'garage__estimate', `Оценка предмета: ${dollars(estimate.min)}–${dollars(estimate.max)}`));
         }
         hints.append(hint);
         inspected.set(key, hint);
