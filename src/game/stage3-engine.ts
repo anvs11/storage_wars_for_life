@@ -46,6 +46,8 @@ export type Stage3State = Stage3Progress & (
   | AirportState
 );
 
+export type Stage3HubState = Extract<Stage3State, { phase: 'hub' }>;
+
 function initialProgress(seed: number): Stage3Progress {
   const ordinary = draw(seed);
   const selected = draw(ordinary.seed);
@@ -90,13 +92,22 @@ function nextProfile(state: BetweenLots & Stage3Progress): BetweenLots & Stage3P
   return { bank, status, lotNumber, revision: state.revision + 1, nextSeed, offerSeeds, assets };
 }
 
-function applyHubCommand(state: Extract<Stage3State, { phase: 'hub' }>, command: Stage3Command): Stage3State {
-  const profile = nextProfile(state);
+export function applySpending(state: Stage3HubState, offerId: OfferId): Stage3HubState {
+  const offer = offerEntry(offerId, state);
+  if (offer.availability !== 'ready') return state;
+  return {
+    ...state, revision: state.revision + 1, bank: state.bank - offer.price, status: state.status + offer.statusGain,
+    assets: isAsset(offerId) ? [...state.assets, offerId] : state.assets,
+  };
+}
+
+function applyHubCommand(state: Stage3HubState, command: Stage3Command): Stage3State {
   switch (command.type) {
     case 'enterAuction': {
       const { tier } = command;
       const { availability } = auctionEntry(tier, state);
       if (availability !== 'ready' && availability !== 'recovery') return state;
+      const profile = nextProfile(state);
       const lotSeed = state.offerSeeds[tier];
       const next = draw(state.nextSeed);
       const lotNumber = profile.lotNumber + 1;
@@ -109,17 +120,10 @@ function applyHubCommand(state: Extract<Stage3State, { phase: 'hub' }>, command:
         offerSeeds: { ...profile.offerSeeds, [tier]: next.word },
       };
     }
-    case 'spend': {
-      const { offerId } = command;
-      const offer = offerEntry(offerId, state);
-      if (offer.availability !== 'ready') return state;
-      return {
-        ...profile, phase: 'hub', bank: state.bank - offer.price, status: state.status + offer.statusGain,
-        assets: isAsset(offerId) ? [...state.assets, offerId] : state.assets,
-      };
-    }
+    case 'spend':
+      return applySpending(state, command.offerId);
     case 'callAirport':
-      return { ...profile, phase: 'airportOffer' };
+      return { ...nextProfile(state), phase: 'airportOffer' };
     default:
       return state;
   }

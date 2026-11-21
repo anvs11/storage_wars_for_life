@@ -23,7 +23,7 @@ function isTier(value: unknown): value is AuctionTier {
   return value === 'ordinary' || value === 'selected' || value === 'antique';
 }
 
-function isStage3State(value: unknown): value is Stage3State {
+export function isStage3State(value: unknown): value is Stage3State {
   if (!isRecord(value)) return false;
   const { nextSeed, offerSeeds, assets, ...core } = value;
   if (!isSeed(nextSeed) || !isRecord(offerSeeds) || !exactKeys(offerSeeds, tiers) ||
@@ -62,17 +62,19 @@ function isStage3State(value: unknown): value is Stage3State {
     isGarageSnapshot(garage, generateLot(tier, lotSeed, lotNumber), advanceAuctionPrice);
 }
 
+export function decodeStage3Snapshot(value: unknown): Stage3State | null {
+  if (!isRecord(value)) return null;
+  if (value.version === 1 && isStage2State(value.state)) return migrateStage2(value.state);
+  return value.version === version && isStage3State(value.state) ? value.state : null;
+}
+
 function decode(serialized: string | null): Stage3State | null {
   if (serialized === null) return null;
   try {
-    const value: unknown = JSON.parse(serialized);
-    if (!isRecord(value)) return null;
-    if (value.version === 1 && isStage2State(value.state)) return migrateStage2(value.state);
-    if (value.version === version && isStage3State(value.state)) return value.state;
+    return decodeStage3Snapshot(JSON.parse(serialized));
   } catch {
     return null;
   }
-  return null;
 }
 
 export function load(storage: SaveStorage): LoadResult<Stage3State> {

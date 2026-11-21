@@ -21,9 +21,8 @@ interface RelationshipProgress {
 type RelationshipAction = RelationshipGoalAction | 'openRelationship';
 
 export type Stage4Command = Stage3Command | {
-  readonly type: RelationshipAction;
-  readonly expectedRevision: number;
-};
+  [Action in RelationshipAction]: { readonly type: Action; readonly expectedRevision: number };
+}[RelationshipAction];
 
 export type Stage4Dispatch = (command: Stage4Command) => void;
 export type Stage4Mount = (root: HTMLElement, view: Stage4View, dispatch: Stage4Dispatch) => void;
