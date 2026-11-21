@@ -15,8 +15,6 @@ export type Stage2Command = { readonly expectedRevision: number } & (
 );
 
 export type Stage2Dispatch = (command: Stage2Command) => void;
-export type Stage2Mount = (root: HTMLElement, view: Stage2View, dispatch: Stage2Dispatch) => void;
-
 type StoryStep =
   | { readonly step: 'door' }
   | { readonly step: 'rain' }

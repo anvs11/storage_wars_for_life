@@ -1,5 +1,4 @@
-import type { Stage2AuctionView, Stage2Command, Stage2Dispatch, Stage2Mount, Stage2View } from '../game/stage2-contract';
-import type { Stage3AuctionView, Stage3Mount } from '../game/stage3-contract';
+import type { Stage3AuctionView, Stage3Command, Stage3Dispatch, Stage3Mount, Stage3View } from '../game/stage3-contract';
 import { mountBaggage } from './baggage';
 import { actionButton, addFact, bankFor, dollars, element } from './dom';
 import { garageScenes } from './garage-scenes';
@@ -9,9 +8,7 @@ import { mountStory } from './story';
 import './garage.css';
 import './stage3.css';
 
-type AuctionView = Stage2AuctionView | Stage3AuctionView;
-
-function factsFor(view: AuctionView): HTMLDListElement {
+function factsFor(view: Stage3AuctionView): HTMLDListElement {
   const facts = element('dl', 'garage__facts');
   switch (view.phase) {
     case 'inspection':
@@ -29,13 +26,13 @@ function factsFor(view: AuctionView): HTMLDListElement {
   return facts;
 }
 
-function mountAuction(root: HTMLElement, view: AuctionView, dispatch: Stage2Dispatch): void {
+function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stage3Dispatch): void {
   const previousFocus = root.contains(document.activeElement) ? document.activeElement : null;
   const focusKey = previousFocus?.getAttribute('data-garage-focus');
   const allowed = new Set(view.allowedActions);
   const buttons = new Map<string, HTMLButtonElement>();
 
-  function button(label: string, command: Stage2Command, key: string, className: string): HTMLButtonElement {
+  function button(label: string, command: Stage3Command, key: string, className: string): HTMLButtonElement {
     const control = actionButton(label, className, () => dispatch(command));
     control.dataset.garageFocus = key;
     buttons.set(key, control);
@@ -128,7 +125,7 @@ function mountAuction(root: HTMLElement, view: AuctionView, dispatch: Stage2Disp
     ));
   }
   if (allowed.has('nextLot')) {
-    controls.append(button('tier' in view ? 'К выбору торгов' : 'Следующий гараж', { type: 'nextLot', expectedRevision: view.revision }, 'nextLot', 'garage__button garage__button--primary'));
+    controls.append(button('К выбору торгов', { type: 'nextLot', expectedRevision: view.revision }, 'nextLot', 'garage__button garage__button--primary'));
   }
 
   panel.append(heading, factsFor(view));
@@ -152,7 +149,7 @@ function mountAuction(root: HTMLElement, view: AuctionView, dispatch: Stage2Disp
   }
 }
 
-function mountRecovery(root: HTMLElement, view: Extract<Stage2View, { phase: 'recovery' }>, dispatch: Stage2Dispatch): void {
+function mountRecovery(root: HTMLElement, view: Extract<Stage3View, { phase: 'recovery' }>, dispatch: Stage3Dispatch): void {
   const restoreFocus = root.contains(document.activeElement);
   const screen = element('section', 'garage');
   const header = element('header', 'garage__header');
@@ -178,19 +175,6 @@ function mountRecovery(root: HTMLElement, view: Extract<Stage2View, { phase: 're
   if (restoreFocus) title.focus();
 }
 
-export const mountStage2: Stage2Mount = (root, view, dispatch) => {
-  switch (view.phase) {
-    case 'prologue':
-      mountStory(root, view, dispatch);
-      break;
-    case 'recovery':
-      mountRecovery(root, view, dispatch);
-      break;
-    default:
-      mountAuction(root, view, dispatch);
-  }
-};
-
 export const mountStage3: Stage3Mount = (root, view, dispatch) => {
   switch (view.phase) {
     case 'hub':
@@ -202,8 +186,10 @@ export const mountStage3: Stage3Mount = (root, view, dispatch) => {
       mountBaggage(root, view, dispatch);
       break;
     case 'prologue':
+      mountStory(root, view, dispatch);
+      break;
     case 'recovery':
-      mountStage2(root, view, dispatch);
+      mountRecovery(root, view, dispatch);
       break;
     default:
       mountAuction(root, view, dispatch);
