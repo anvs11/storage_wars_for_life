@@ -1,9 +1,9 @@
-import type { Stage2Dispatch } from './game/stage2-contract';
-import { getView, newGame } from './game/stage2-engine';
-import type { Stage2State } from './game/stage2-engine';
-import { applySavedCommand, load, save } from './platform/save';
+import type { Stage3Dispatch } from './game/stage3-contract';
+import { getView, newGame } from './game/stage3-engine';
+import type { Stage3State } from './game/stage3-engine';
 import type { SaveStorage } from './platform/save';
-import { mountStage2 as mount } from './ui/mount';
+import { applySavedCommand, load, save } from './platform/stage3-save';
+import { mountStage3 } from './ui/mount';
 
 function start(root: HTMLElement): void {
   const storage: SaveStorage = {
@@ -21,7 +21,7 @@ function start(root: HTMLElement): void {
   feedback.append(status, action);
   root.before(feedback);
 
-  let state: Stage2State | undefined;
+  let state: Stage3State | undefined;
 
   function notify(message: string, nextAction?: { label: string; run: () => void }): void {
     status.textContent = message;
@@ -31,7 +31,7 @@ function start(root: HTMLElement): void {
     action.onclick = nextAction?.run ?? null;
   }
 
-  const dispatch: Stage2Dispatch = (command) => {
+  const dispatch: Stage3Dispatch = (command) => {
     if (!state) return;
     const result = applySavedCommand(storage, state, command);
     if (result.kind === 'ignored') return;
@@ -42,10 +42,10 @@ function start(root: HTMLElement): void {
     show(result.state);
   };
 
-  function show(nextState: Stage2State, message = ''): void {
+  function show(nextState: Stage3State, message = ''): void {
     state = nextState;
     notify(message);
-    mount(root, getView(state), dispatch);
+    mountStage3(root, getView(state), dispatch);
   }
 
   function startNew(): void {
