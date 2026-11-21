@@ -1,0 +1,72 @@
+.relationship {
+  max-width: 1120px;
+}
+
+.relationship__layout {
+  display: grid;
+  gap: 12px;
+  max-width: 620px;
+}
+
+.relationship__layout--illustrated {
+  max-width: none;
+}
+
+.relationship__image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #192424;
+}
+
+.relationship__panel {
+  align-content: center;
+}
+
+.relationship__reply {
+  margin: 0;
+  padding-inline-start: 12px;
+  border-inline-start: 2px solid var(--amber);
+  font-size: clamp(1.05rem, 1.65vw, 1.25rem);
+  line-height: 1.45;
+}
+
+.relationship__goal {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.relationship__condition {
+  margin: 0;
+  color: var(--amber);
+  font-size: .875rem;
+}
+
+.relationship__controls {
+  flex-wrap: wrap;
+}
+
+.relationship__controls > button {
+  flex: 1 1 auto;
+}
+
+.hub__relationship {
+  margin-top: 16px;
+}
+
+.hub__relationship .garage__button {
+  width: fit-content;
+  max-width: 100%;
+}
+
+@media (min-width: 800px) {
+  .relationship__layout--illustrated {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    align-items: start;
+    gap: 20px;
+  }
+}

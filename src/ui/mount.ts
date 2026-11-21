@@ -1,9 +1,11 @@
-import type { Stage3AuctionView, Stage3Command, Stage3Dispatch, Stage3Mount, Stage3View } from '../game/stage3-contract';
+import type { Stage3AuctionView, Stage3Command, Stage3Dispatch, Stage3View } from '../game/stage3-contract';
+import type { Stage4Mount } from '../game/stage4-contract';
 import { mountBaggage } from './baggage';
 import { actionButton, addFact, bankFor, dollars, element } from './dom';
 import { garageScenes } from './garage-scenes';
 import { mountHub } from './hub';
 import { inventoryFor, receiptFacts, saleFacts } from './inventory';
+import { mountRelationship } from './relationship';
 import { mountStory } from './story';
 import './garage.css';
 import './stage3.css';
@@ -175,10 +177,13 @@ function mountRecovery(root: HTMLElement, view: Extract<Stage3View, { phase: 're
   if (restoreFocus) title.focus();
 }
 
-export const mountStage3: Stage3Mount = (root, view, dispatch) => {
+export const mountStage4: Stage4Mount = (root, view, dispatch) => {
   switch (view.phase) {
     case 'hub':
       mountHub(root, view, dispatch);
+      break;
+    case 'relationship':
+      mountRelationship(root, view, dispatch);
       break;
     case 'airportOffer':
     case 'baggageInventory':

@@ -1,7 +1,8 @@
-import type { Stage3Command, Stage3Dispatch, Stage3View } from '../game/stage3-contract';
+import type { Stage4Command, Stage4Dispatch, Stage4HubView } from '../game/stage4-contract';
 import { actionButton, bankFor, dollars, element, replaceScreen } from './dom';
+import { relationshipGoalFor } from './relationship';
 
-type HubView = Extract<Stage3View, { phase: 'hub' }>;
+type HubView = Stage4HubView;
 type HubOffer = HubView['offers'][number];
 
 function statusFor(view: HubView): HTMLElement {
@@ -30,14 +31,14 @@ function offerMessage(offer: HubOffer): string {
   }
 }
 
-export function mountHub(root: HTMLElement, view: HubView, dispatch: Stage3Dispatch): void {
+export function mountHub(root: HTMLElement, view: HubView, dispatch: Stage4Dispatch): void {
   const screen = element('section', 'garage hub');
   const header = element('header', 'garage__header');
   const title = element('h1', 'garage__title', 'Между торгами');
   title.tabIndex = -1;
   header.append(title, bankFor(view.bank));
 
-  function button(label: string, command: Stage3Command, key: string, primary = false): HTMLButtonElement {
+  function button(label: string, command: Stage4Command, key: string, primary = false): HTMLButtonElement {
     const control = actionButton(label, primary ? 'garage__button garage__button--primary' : 'garage__button',
       () => dispatch(command));
     control.dataset.screenFocus = key;
@@ -108,6 +109,17 @@ export function mountHub(root: HTMLElement, view: HubView, dispatch: Stage3Dispa
     airport.append(button('Позвонить в аэропорт', { type: 'callAirport', expectedRevision: view.revision }, 'airport'));
   }
 
-  screen.append(header, statusFor(view), auctions, spending, airport);
+  const relationship = element('section', 'garage__panel hub__relationship');
+  relationship.append(element('h2', 'garage__heading', 'История с соседями'));
+  const { step, nextGoal } = view.relationship;
+  if (nextGoal) relationship.append(relationshipGoalFor(nextGoal, view.status, view.bank));
+  else relationship.append(element('p', 'hub__detail', 'Вы съехались. Эпилог можно открыть снова.'));
+
+  if (view.allowedActions.includes('openRelationship')) {
+    const label = step === 'unmet' ? 'К соседям' : step === 'movedIn' ? 'Открыть эпилог' : 'Продолжить историю';
+    relationship.append(button(label, { type: 'openRelationship', expectedRevision: view.revision }, 'relationship'));
+  }
+
+  screen.append(header, statusFor(view), auctions, relationship, spending, airport);
   replaceScreen(root, screen, title);
 }
