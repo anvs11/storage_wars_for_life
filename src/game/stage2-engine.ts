@@ -1,7 +1,9 @@
 import { createLot } from './catalog';
-import type { GarageLot, LotFind } from './catalog';
+import type { GarageLot } from './catalog';
+import { emptyInventory, interactWithInventory, inventoryView } from './inventory';
+import type { InventoryProgress } from './inventory';
 import type { ItemId, PassedReceipt, SoldReceipt, VisibleItem } from './contract';
-import type { Stage2Command, Stage2View } from './stage2-contract';
+import type { Stage2Command, Stage2Scene, Stage2View } from './stage2-contract';
 
 const grant = 200;
 const rent = 100;
@@ -26,21 +28,16 @@ interface Profile {
   readonly status: number;
 }
 
-interface LotSnapshot {
+interface LotSnapshot<Scene extends string> {
   readonly lotNumber: number;
-  readonly lot: GarageLot;
+  readonly lot: GarageLot<Scene>;
   readonly inspectedItemIds: readonly ItemId[];
   readonly activeOpponentIds: readonly string[];
 }
 
-interface Inventory {
-  readonly openedBoxIds: readonly ItemId[];
-  readonly soldItemIds: readonly ItemId[];
-}
-
-export type Stage2State = Profile & (
+export type Stage2State<Scene extends string = Stage2Scene> = Profile & (
   | { readonly phase: 'prologue'; readonly storyIndex: 0 | typeof nextStoryFrame[number] }
-  | (LotSnapshot & (
+  | (LotSnapshot<Scene> & (
       | { readonly phase: 'inspection' }
       | { readonly phase: 'recovery' }
       | {
@@ -49,22 +46,20 @@ export type Stage2State = Profile & (
           readonly leaderId: string;
           readonly lastPlayerBid: number;
         }
-      | (Inventory & { readonly phase: 'reveal'; readonly purchasePrice: number })
-      | (Inventory & { readonly phase: 'result'; readonly receipt: SoldReceipt | PassedReceipt })
+      | (InventoryProgress & { readonly phase: 'reveal'; readonly purchasePrice: number })
+      | (InventoryProgress & { readonly phase: 'result'; readonly receipt: SoldReceipt | PassedReceipt })
     ))
 );
 
-type AuctionState = Extract<Stage2State, { phase: 'inspection' | 'bidding' }>;
-type RevealState = Extract<Stage2State, { phase: 'reveal' }>;
-
-const emptyInventory = { openedBoxIds: [], soldItemIds: [] } as const;
+export type GarageState<Scene extends string = Stage2Scene> = Exclude<Stage2State<Scene>, { phase: 'prologue' }>;
+type BiddingState<Scene extends string> = Extract<GarageState<Scene>, { phase: 'inspection' | 'bidding' }>;
+type AdvancePrice = (price: number) => number;
 
 export function newGame(): Stage2State {
   return { phase: 'prologue', storyIndex: 0, revision: 0, bank: 0, status: 0 };
 }
 
-function enterLot(profile: Profile, lotNumber: number): Stage2State {
-  const lot = createLot(lotNumber);
+export function enterLot<Scene extends string>(profile: Profile, lotNumber: number, lot: GarageLot<Scene>): GarageState<Scene> {
   return {
     ...profile,
     phase: profile.bank < lot.openingBid ? 'recovery' : 'inspection',
@@ -75,30 +70,20 @@ function enterLot(profile: Profile, lotNumber: number): Stage2State {
   };
 }
 
-function nextBid(state: AuctionState): number {
-  return state.phase === 'bidding' ? state.opponentBid + state.lot.bidIncrement : state.lot.openingBid;
+function nextBid<Scene extends string>(state: BiddingState<Scene>, advancePrice: AdvancePrice): number {
+  return state.phase === 'bidding' ? advancePrice(state.opponentBid) : state.lot.openingBid;
 }
 
-function inventory(state: RevealState) {
-  const { boxes, visibleFinds } = state.lot;
-  const sealedBoxes = boxes.filter(({ id }) => !state.openedBoxIds.includes(id));
-  const openedFinds = boxes.filter(({ id }) => state.openedBoxIds.includes(id)).flatMap(({ contents }) => contents);
-  const finds = [...visibleFinds, ...openedFinds];
-  const available = finds.filter(({ id }) => !state.soldItemIds.includes(id));
-  const revenue = finds.reduce((total, { id, salePrice }) => (
-    state.soldItemIds.includes(id) ? total + salePrice : total
-  ), 0);
-  return { sealedBoxes, available, revenue };
-}
-
-function acceptBid(state: AuctionState, next: Profile & LotSnapshot): Stage2State {
-  const bid = nextBid(state);
+function acceptBid<Scene extends string>(
+  state: BiddingState<Scene>, next: Profile & LotSnapshot<Scene>, advancePrice: AdvancePrice,
+): GarageState<Scene> {
+  const bid = nextBid(state, advancePrice);
   if (bid > state.bank) return state;
 
   let price = bid;
   const activeOpponentIds: string[] = [];
   for (const opponent of state.lot.opponents) {
-    const counter = price + state.lot.bidIncrement;
+    const counter = advancePrice(price);
     if (!state.activeOpponentIds.includes(opponent.id) || counter > opponent.limit) continue;
     price = counter;
     activeOpponentIds.push(opponent.id);
@@ -118,17 +103,13 @@ function acceptBid(state: AuctionState, next: Profile & LotSnapshot): Stage2Stat
   };
 }
 
-function totalPrice(finds: readonly LotFind[]): number {
-  return finds.reduce((sum, { salePrice }) => sum + salePrice, 0);
-}
-
 export function applyCommand(state: Stage2State, command: Stage2Command): Stage2State {
   if (state.revision !== command.expectedRevision) return state;
 
   const profile = { bank: state.bank, status: state.status, revision: state.revision + 1 };
   if (state.phase === 'prologue') {
     if (command.type === 'skipStory' || (command.type === 'confirmRent' && state.storyIndex === rentFrame)) {
-      return enterLot({ ...profile, bank: grant - rent }, 1);
+      return enterLot({ ...profile, bank: grant - rent }, 1, createLot(1));
     }
     if (command.type === 'storyNext' && state.storyIndex !== rentFrame) {
       return { ...state, revision: profile.revision, storyIndex: nextStoryFrame[state.storyIndex] };
@@ -136,6 +117,18 @@ export function applyCommand(state: Stage2State, command: Stage2Command): Stage2
     return state;
   }
 
+  if (command.type === 'nextLot' && state.phase === 'result') {
+    const lotNumber = state.lotNumber + 1;
+    return enterLot(profile, lotNumber, createLot(lotNumber));
+  }
+  return applyGarageCommand(state, command);
+}
+
+export function applyGarageCommand<Scene extends string>(
+  state: GarageState<Scene>, command: Stage2Command, advancePrice: AdvancePrice = (price) => price + state.lot.bidIncrement,
+): GarageState<Scene> {
+  if (state.revision !== command.expectedRevision) return state;
+  const profile = { bank: state.bank, status: state.status, revision: state.revision + 1 };
   const next = {
     ...profile,
     lot: state.lot,
@@ -154,7 +147,7 @@ export function applyCommand(state: Stage2State, command: Stage2Command): Stage2
       return { ...state, revision: profile.revision, inspectedItemIds: [...state.inspectedItemIds, command.itemId] };
     }
     case 'bid':
-      return auctionOpen ? acceptBid(state, next) : state;
+      return auctionOpen ? acceptBid(state, next, advancePrice) : state;
     case 'pass':
       if (!auctionOpen) return state;
       return {
@@ -164,45 +157,35 @@ export function applyCommand(state: Stage2State, command: Stage2Command): Stage2
         receipt: { outcome: 'passed', purchasePrice: 0, revenue: 0, profit: 0 },
       };
     case 'openBox':
-      if (state.phase !== 'reveal' || state.openedBoxIds.includes(command.boxId)) return state;
-      if (!state.lot.boxes.some(({ id }) => id === command.boxId)) return state;
-      return { ...state, revision: profile.revision, openedBoxIds: [...state.openedBoxIds, command.boxId] };
     case 'sellAll':
     case 'sellItem': {
       if (state.phase !== 'reveal') return state;
-      const { sealedBoxes, available, revenue } = inventory(state);
-      if (command.type === 'sellAll' && sealedBoxes.length > 0) return state;
-      const sales = command.type === 'sellAll' ? available : available.filter(({ id }) => id === command.itemId);
-      if (sales.length === 0) return state;
-
-      const proceeds = totalPrice(sales);
-      const updated = {
-        ...next,
-        bank: state.bank + proceeds,
-        openedBoxIds: state.openedBoxIds,
-        soldItemIds: [...state.soldItemIds, ...sales.map(({ id }) => id)],
-      };
-      const { purchasePrice } = state;
-      if (sealedBoxes.length > 0 || sales.length < available.length) {
-        return { ...updated, phase: 'reveal', purchasePrice };
+      const update = interactWithInventory(state.lot, state, command);
+      if (!update) return state;
+      const bank = state.bank + update.proceeds;
+      if (!update.receipt) {
+        return { ...state, bank, revision: profile.revision, ...update.inventory };
       }
-      const finalRevenue = revenue + proceeds;
-      const profit = finalRevenue - purchasePrice;
       return {
-        ...updated,
+        ...next,
         phase: 'result',
-        status: state.status + (profit > 0 ? 2 : 0),
-        receipt: { outcome: 'sold', purchasePrice, revenue: finalRevenue, profit },
+        ...update.inventory,
+        bank,
+        status: state.status + (update.receipt.profit > 0 ? 2 : 0),
+        receipt: update.receipt,
       };
     }
-    case 'nextLot':
-      return state.phase === 'result' ? enterLot(profile, state.lotNumber + 1) : state;
     default:
       return state;
   }
 }
 
-export function getView(state: Stage2State): Stage2View {
+export function getView(state: Extract<Stage2State, { phase: 'prologue' }>): Extract<Stage2View, { phase: 'prologue' }>;
+export function getView<Scene extends string>(state: Stage2State<Scene>, advancePrice?: AdvancePrice): Stage2View<Scene>;
+export function getView<Scene extends string>(
+  state: Stage2State<Scene>,
+  advancePrice: AdvancePrice = (price) => price + ('lot' in state ? state.lot.bidIncrement : 5),
+): Stage2View<Scene> {
   const { revision, bank, phase } = state;
   if (phase === 'prologue') {
     const story = storyFrames[state.storyIndex];
@@ -225,7 +208,7 @@ export function getView(state: Stage2State): Stage2View {
   const base = { revision, bank, visibleItems, lotNumber: state.lotNumber, sceneId: state.lot.sceneId };
 
   if (auctionOpen) {
-    const nextBidAmount = nextBid(state);
+    const nextBidAmount = nextBid(state, advancePrice);
     const allowedActions: ('inspect' | 'bid' | 'pass')[] = [];
     if (visibleItems.some(({ canInspect }) => canInspect)) allowedActions.push('inspect');
     if (nextBidAmount <= bank) allowedActions.push('bid');
@@ -247,21 +230,10 @@ export function getView(state: Stage2State): Stage2View {
 
   const closed = { ...base, currentPrice: null, lastPlayerBid: null, leadingBidder: null, nextBidAmount: null };
   if (state.phase === 'reveal') {
-    const { sealedBoxes, available, revenue } = inventory(state);
-    const allowedActions: ('openBox' | 'sellItem' | 'sellAll')[] = [];
-    if (sealedBoxes.length > 0) allowedActions.push('openBox');
-    if (available.length > 0) {
-      allowedActions.push('sellItem');
-      if (sealedBoxes.length === 0) allowedActions.push('sellAll');
-    }
     return {
       ...closed,
       phase: 'reveal',
-      purchasePrice: state.purchasePrice,
-      revenue,
-      sealedBoxes: sealedBoxes.map(({ id, name }) => ({ id, name })),
-      revealedFinds: available.map(({ id, name, salePrice }) => ({ id, name, salePrice })),
-      allowedActions,
+      ...inventoryView(state.lot, state),
     };
   }
   return { ...closed, phase: 'result', receipt: state.receipt, allowedActions: ['nextLot'] };

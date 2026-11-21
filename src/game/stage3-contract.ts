@@ -17,15 +17,9 @@ export type Stage3Command = Stage2Command | (
 export type Stage3Dispatch = (command: Stage3Command) => void;
 export type Stage3Mount = (root: HTMLElement, view: Stage3View, dispatch: Stage3Dispatch) => void;
 
-type AuctionPhase = Stage2AuctionView['phase'];
-type Stage3Scene = Stage2AuctionView['sceneId'] | 'selected' | 'antiques';
+export type Stage3Scene = Stage2AuctionView['sceneId'] | 'selected' | 'antiques';
 
-export type Stage3AuctionView = {
-  [Phase in AuctionPhase]: Omit<Extract<Stage2AuctionView, { phase: Phase }>, 'sceneId'> & {
-    readonly tier: AuctionTier;
-    readonly sceneId: Stage3Scene;
-  };
-}[AuctionPhase];
+export type Stage3AuctionView = Stage2AuctionView<Stage3Scene> & { readonly tier: AuctionTier };
 
 interface HubAuction {
   readonly tier: AuctionTier;

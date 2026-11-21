@@ -29,9 +29,11 @@ type StoryStep =
       readonly rentalWeeks: number;
     };
 
-interface AuctionDetails {
+export type Stage2Scene = 'tutorial' | 'workshop' | 'household';
+
+interface AuctionDetails<Scene extends string> {
   readonly lotNumber: number;
-  readonly sceneId: 'tutorial' | 'workshop' | 'household';
+  readonly sceneId: Scene;
   readonly visibleItems: readonly VisibleItem[];
 }
 
@@ -50,13 +52,13 @@ interface ClosedAuctionView {
   readonly nextBidAmount: null;
 }
 
-export type Stage2View = { readonly revision: number; readonly bank: number } & (
+export type Stage2View<Scene extends string = Stage2Scene> = { readonly revision: number; readonly bank: number } & (
   | {
       readonly phase: 'prologue';
       readonly story: StoryStep;
       readonly allowedActions: readonly ('storyNext' | 'skipStory' | 'confirmRent')[];
     }
-  | (AuctionDetails & OpenAuctionView & (
+  | (AuctionDetails<Scene> & OpenAuctionView & (
       | {
           readonly phase: 'inspection';
           readonly currentPrice: null;
@@ -71,7 +73,7 @@ export type Stage2View = { readonly revision: number; readonly bank: number } & 
           readonly lastPlayerBid: number;
         }
     ))
-  | (AuctionDetails & ClosedAuctionView & (
+  | (AuctionDetails<Scene> & ClosedAuctionView & (
       | {
           readonly phase: 'reveal';
           readonly allowedActions: readonly ('openBox' | 'sellItem' | 'sellAll')[];
@@ -97,4 +99,4 @@ export type Stage2View = { readonly revision: number; readonly bank: number } & 
     }
 );
 
-export type Stage2AuctionView = Extract<Stage2View, { phase: 'inspection' | 'bidding' | 'reveal' | 'result' }>;
+export type Stage2AuctionView<Scene extends string = Stage2Scene> = Extract<Stage2View<Scene>, { phase: 'inspection' | 'bidding' | 'reveal' | 'result' }>;
