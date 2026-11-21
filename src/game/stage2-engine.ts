@@ -52,11 +52,14 @@ export type Stage2State<Scene extends string = Stage2Scene> = Profile & (
 );
 
 export type GarageState<Scene extends string = Stage2Scene> = Exclude<Stage2State<Scene>, { phase: 'prologue' }>;
+type PrologueState = Extract<Stage2State, { phase: 'prologue' }>;
 type BiddingState<Scene extends string> = Extract<GarageState<Scene>, { phase: 'inspection' | 'bidding' }>;
 type AdvancePrice = (price: number) => number;
 
+export const initialPrologue = { phase: 'prologue', storyIndex: 0, revision: 0, bank: 0, status: 0 } as const satisfies PrologueState;
+
 export function newGame(): Stage2State {
-  return { phase: 'prologue', storyIndex: 0, revision: 0, bank: 0, status: 0 };
+  return { ...initialPrologue };
 }
 
 export function enterLot<Scene extends string>(profile: Profile, lotNumber: number, lot: GarageLot<Scene>): GarageState<Scene> {
@@ -103,22 +106,24 @@ function acceptBid<Scene extends string>(
   };
 }
 
-export function applyCommand(state: Stage2State, command: Stage2Command): Stage2State {
+export function applyStoryCommand(state: PrologueState, command: Stage2Command): Stage2State {
   if (state.revision !== command.expectedRevision) return state;
-
-  const profile = { bank: state.bank, status: state.status, revision: state.revision + 1 };
-  if (state.phase === 'prologue') {
-    if (command.type === 'skipStory' || (command.type === 'confirmRent' && state.storyIndex === rentFrame)) {
-      return enterLot({ ...profile, bank: grant - rent }, 1, createLot(1));
-    }
-    if (command.type === 'storyNext' && state.storyIndex !== rentFrame) {
-      return { ...state, revision: profile.revision, storyIndex: nextStoryFrame[state.storyIndex] };
-    }
-    return state;
+  const revision = state.revision + 1;
+  if (command.type === 'skipStory' || (command.type === 'confirmRent' && state.storyIndex === rentFrame)) {
+    return enterLot({ bank: grant - rent, status: state.status, revision }, 1, createLot(1));
   }
+  if (command.type === 'storyNext' && state.storyIndex !== rentFrame) {
+    return { ...state, revision, storyIndex: nextStoryFrame[state.storyIndex] };
+  }
+  return state;
+}
 
+export function applyCommand(state: Stage2State, command: Stage2Command): Stage2State {
+  if (state.phase === 'prologue') return applyStoryCommand(state, command);
+  if (state.revision !== command.expectedRevision) return state;
   if (command.type === 'nextLot' && state.phase === 'result') {
     const lotNumber = state.lotNumber + 1;
+    const profile = { bank: state.bank, status: state.status, revision: state.revision + 1 };
     return enterLot(profile, lotNumber, createLot(lotNumber));
   }
   return applyGarageCommand(state, command);

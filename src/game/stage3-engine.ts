@@ -6,7 +6,7 @@ import { auctions, isAsset, offerIds, offers, tiers } from './progression';
 import type { Asset } from './progression';
 import { draw, freshSeed } from './random';
 import { advanceAuctionPrice, generateLot, openingBidFor } from './repeat-auctions';
-import { applyCommand as applyStage2Command, applyGarageCommand, enterLot, getView as getGarageView, newGame as newStage2Game } from './stage2-engine';
+import { applyGarageCommand, applyStoryCommand, enterLot, getView as getGarageView, initialPrologue } from './stage2-engine';
 import type { GarageState, Stage2State } from './stage2-engine';
 import type { AuctionTier, OfferId, Stage3Command, Stage3Scene, Stage3View } from './stage3-contract';
 
@@ -58,8 +58,7 @@ function initialProgress(seed: number): Stage3Progress {
 }
 
 export function newGame(seed = freshSeed()): Stage3State {
-  const profile = { ...newStage2Game(), phase: 'prologue', storyIndex: 0 } as const;
-  return { ...profile, ...initialProgress(seed) };
+  return { ...initialPrologue, ...initialProgress(seed) };
 }
 
 export function migrateStage2(state: Stage2State): Stage3State {
@@ -164,7 +163,7 @@ export function applyCommand(state: Stage3State, command: Stage3Command): Stage3
   const { nextSeed, offerSeeds, assets } = state;
   const progress = { nextSeed, offerSeeds, assets };
   if (state.phase === 'prologue') {
-    const updated = applyStage2Command(state, command);
+    const updated = applyStoryCommand(state, command);
     if (updated === state) return state;
     return updated.phase === 'prologue'
       ? { ...updated, ...progress }
