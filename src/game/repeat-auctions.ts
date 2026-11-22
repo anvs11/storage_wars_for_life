@@ -5,11 +5,11 @@ import { auctions } from './progression';
 import { draw, seededRandom } from './random';
 import type { AuctionTier, Stage3Scene } from './stage3-contract';
 
-type CandidateId = keyof typeof repeatCatalog;
+export type CandidateId = keyof typeof repeatCatalog;
 type Condition = LotFind['condition'];
 type RepeatScene = Exclude<Stage3Scene, 'tutorial'>;
 const rarities = ['common', 'unusual', 'rare'] as const;
-const conditions = ['damaged', 'worn', 'good'] as const;
+const conditionOrder = ['damaged', 'worn', 'good'] as const;
 const attempts = 28;
 const tolerance = 0.06;
 
@@ -18,6 +18,18 @@ export const economy = {
   selected: { budget: [30, 180], weights: [55, 35, 10], boxEstimate: 25, bidFactor: [0.40, 1.34] },
   antique: { budget: [55, 320], weights: [40, 40, 20], boxEstimate: 40, bidFactor: [0.34, 1.38] },
 } as const;
+
+export interface RepeatPricing {
+  readonly tiers: Readonly<Record<AuctionTier, {
+    readonly budget: readonly [number, number];
+    readonly weights: readonly [number, number, number];
+    readonly boxEstimate: number;
+    readonly bidFactor: readonly [number, number];
+  }>>;
+  readonly ranges?: Readonly<Record<CandidateId, readonly [readonly [number, number], readonly [number, number], readonly [number, number]]>>;
+  readonly bidIncrement: number;
+}
+const legacyPricing: RepeatPricing = { tiers: economy, bidIncrement: 5 };
 
 const workshop = ['drill', 'vise', 'level', 'wrench'] as const;
 const household = ['kettle', 'lamp', 'radio', 'camera'] as const;
@@ -91,9 +103,9 @@ export function visibleEstimate(visibleClues: readonly Pick<InspectionHint, 'est
 // Только видимые диапазоны, число коробок и отдельный поток случайности.
 export function opponentLimits(
   tier: AuctionTier, visibleClues: readonly Pick<InspectionHint, 'estimatedSalePrice'>[],
-  boxCount: number, names: readonly string[], random: () => number,
+  boxCount: number, names: readonly string[], random: () => number, pricing: RepeatPricing = legacyPricing,
 ): GarageLot<RepeatScene>['opponents'] {
-  const { boxEstimate, bidFactor: [min, max] } = economy[tier];
+  const { boxEstimate, bidFactor: [min, max] } = pricing.tiers[tier];
   const estimate = visibleEstimate(visibleClues) + boxCount * boxEstimate;
   return names.map((name, index) => ({
     id: `bidder-${index + 1}`,
@@ -109,9 +121,10 @@ function chooseItem(pool: readonly CandidateId[], weights: readonly [number, num
   return candidates[Math.floor(random() * candidates.length)]!;
 }
 
-function find(catalogId: CandidateId, condition: Condition, id: string, price: (min: number, max: number) => number): RepeatFind {
+function find(catalogId: CandidateId, condition: Condition, id: string, price: (min: number, max: number) => number, pricing: RepeatPricing): RepeatFind {
   const { name, rarity, conditions } = repeatCatalog[catalogId];
-  const { range: [min, max], clue } = conditions[condition];
+  const { clue, range } = conditions[condition];
+  const [min, max] = pricing.ranges?.[catalogId][conditionOrder.indexOf(condition)] ?? range;
   return {
     id, catalogId, name, rarity, condition,
     salePrice: price(min, max),
@@ -134,20 +147,20 @@ function fill(template: Template, lotNumber: number, create: (pool: readonly Can
   };
 }
 
-function fallbackContents(template: Template, lotNumber: number, target: number): Contents {
+function fallbackContents(template: Template, lotNumber: number, target: number, pricing: RepeatPricing): Contents {
   const slots = [...template.visible, ...template.boxes.flat()];
-  let remaining = target - slots.reduce((sum, pool) => sum + repeatCatalog[pool[0]!].conditions.worn.range[0], 0);
+  let remaining = target - slots.reduce((sum, pool) => sum + (pricing.ranges?.[pool[0]!][1][0] ?? repeatCatalog[pool[0]!].conditions.worn.range[0]), 0);
   return fill(template, lotNumber, (pool, id) => find(pool[0]!, 'worn', id, (min, max) => {
     const extra = Math.min(max - min, Math.max(0, remaining));
     remaining -= extra;
     return min + extra;
-  }));
+  }, pricing));
 }
 
-export function generateLot(tier: AuctionTier, seed: number, lotNumber: number): RepeatLot {
+export function generateLot(tier: AuctionTier, seed: number, lotNumber: number, pricing: RepeatPricing = legacyPricing, openingBid = openingBidFor(tier, seed)): RepeatLot {
   const template = templateFor(tier, seed);
   const random = seededRandom(draw(seed).word);
-  const { budget: [min, max], weights } = economy[tier];
+  const { budget: [min, max], weights } = pricing.tiers[tier];
   const targetValue = min + Math.round((max - min) * (random() + random()) / 2);
   let closest: Contents | undefined;
   let smallestGap = Infinity;
@@ -155,8 +168,8 @@ export function generateLot(tier: AuctionTier, seed: number, lotNumber: number):
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const candidate = fill(template, lotNumber, (pool, id) => {
       const item = chooseItem(pool, weights, random);
-      const condition = conditions[Math.floor(random() * conditions.length)]!;
-      return find(item, condition, id, (low, high) => low + Math.floor(random() * (high - low + 1)));
+      const condition = conditionOrder[Math.floor(random() * conditionOrder.length)]!;
+      return find(item, condition, id, (low, high) => low + Math.floor(random() * (high - low + 1)), pricing);
     });
     const all = [...candidate.visibleFinds, ...candidate.boxes.flatMap(({ contents }) => contents)];
     const saleValue = all.reduce((sum, item) => sum + item.salePrice, 0);
@@ -167,16 +180,16 @@ export function generateLot(tier: AuctionTier, seed: number, lotNumber: number):
     if (gap <= Math.max(2, targetValue * tolerance)) break;
   }
 
-  const content = closest ?? fallbackContents(template, lotNumber, targetValue);
+  const content = closest ?? fallbackContents(template, lotNumber, targetValue, pricing);
   return {
     ...content,
     targetValue,
     sceneId: template.sceneId,
-    openingBid: template.openingBid,
-    bidIncrement: 5,
+    openingBid,
+    bidIncrement: pricing.bidIncrement,
     opponents: opponentLimits(
       tier, content.visibleFinds.map(({ hint }) => hint), content.boxes.length, template.opponents,
-      seededRandom(seed ^ 0x41c6ce57),
+      seededRandom(seed ^ 0x41c6ce57), pricing,
     ),
   };
 }

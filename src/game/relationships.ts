@@ -1,6 +1,6 @@
 import { offers } from './progression';
 import type { Asset } from './progression';
-import { applySpending } from './stage3-engine';
+import { applySpending, legacyEconomy } from './stage3-engine';
 import type { Stage3HubState } from './stage3-engine';
 import type { RelationshipGoal, RelationshipGoalAction, RelationshipStep, Stage4Command } from './stage4-contract';
 
@@ -32,25 +32,26 @@ export function canOpenRelationship(status: number): boolean {
   return status >= meetingStatus;
 }
 
-function goalForEvent(game: RelationshipProfile, event: RelationshipEvent): RelationshipGoal {
+function goalForEvent(game: RelationshipProfile, event: RelationshipEvent, economy = legacyEconomy): RelationshipGoal {
   const { action, payment, requiredStatus = null, requiredUpgrades = [] } = event;
-  const price = typeof payment === 'string' ? offers[payment].price : payment ?? null;
+  const price = typeof payment === 'string' ? economy.offerPrice(payment) : payment === undefined ? null : economy.flowerPrice;
   const missingUpgrades = requiredUpgrades.filter((asset) => !game.assets.includes(asset));
   const canProceed = game.bank >= (price ?? 0) && game.status >= (requiredStatus ?? 0) && missingUpgrades.length === 0;
   return { action, price, requiredStatus, missingUpgrades, canProceed };
 }
 
-export function getRelationshipGoal(game: RelationshipProfile, step: RelationshipStep): RelationshipGoal | null {
+export function getRelationshipGoal(game: RelationshipProfile, step: RelationshipStep, economy = legacyEconomy): RelationshipGoal | null {
   const event = events[step];
-  return event ? goalForEvent(game, event) : null;
+  return event ? goalForEvent(game, event, economy) : null;
 }
 
-export function advanceRelationship(game: Stage3HubState, step: RelationshipStep, action: Stage4Command['type']) {
+export function advanceRelationship(game: Stage3HubState, step: RelationshipStep, action: Stage4Command['type'], economy = legacyEconomy) {
   const event = events[step];
   if (!event || event.action !== action || !goalForEvent(game, event).canProceed) return null;
   const { payment, nextStep } = event;
-  const next = typeof payment === 'string' ? applySpending(game, payment)
-    : { ...game, bank: game.bank - (payment ?? 0), revision: game.revision + 1 };
+  const { price } = goalForEvent(game, event, economy);
+  const next = typeof payment === 'string' ? applySpending(game, payment, economy)
+    : { ...game, bank: game.bank - (price ?? 0), revision: game.revision + 1 };
   return next === game ? null : { game: next, relationshipStep: nextStep };
 }
 

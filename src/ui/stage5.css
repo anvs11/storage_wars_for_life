@@ -1,0 +1,215 @@
+.stage5 {
+  max-width: 1180px;
+}
+
+.stage5__art {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  border-radius: 14px;
+  background: #1c2929;
+}
+
+.stage5__home {
+  max-width: 830px;
+}
+
+.stage5__nav,
+.stage5__stack,
+.stage5__layout,
+.stage5__market,
+.stage5__form {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.stage5__nav {
+  grid-template-columns: repeat(auto-fit, minmax(min(132px, 100%), 1fr));
+  margin-bottom: 14px;
+}
+
+.stage5__nav [aria-current="page"],
+.stage5__slots [aria-pressed="true"],
+.stage5__markers [aria-pressed="true"] {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.stage5__layout,
+.stage5__stack,
+.stage5__market {
+  align-items: start;
+}
+
+.stage5__market,
+.stage5__records {
+  margin-top: 12px;
+}
+
+.stage5__copy,
+.stage5__capacity {
+  margin: 0;
+}
+
+.stage5__capacity {
+  margin-bottom: 8px;
+  color: var(--amber);
+}
+
+.stage5__close,
+.stage5__garage-art {
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+}
+
+.stage5__close .stage5__art {
+  transform: scale(1.13);
+}
+
+.stage5__markers {
+  position: absolute;
+  display: flex;
+  gap: 4px;
+}
+
+.stage5__markers--shelf {
+  top: 14%;
+  left: 3%;
+  max-width: 58%;
+  flex-wrap: wrap;
+}
+
+.stage5__markers--floor {
+  bottom: 11%;
+  right: 10%;
+}
+
+.stage5__marker {
+  min-width: 44px;
+  padding: 4px;
+  background-color: #162121e8;
+}
+
+.stage5__object {
+  display: block;
+  font-size: 3rem;
+}
+
+.stage5__confirm summary {
+  display: list-item;
+  cursor: pointer;
+  padding-block: 10px;
+  min-height: 44px;
+}
+
+.stage5__confirm summary:focus-visible,
+.stage5__price:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.stage5__form label {
+  display: grid;
+  gap: 4px;
+}
+
+.stage5__price {
+  min-width: 0;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: #11191a;
+  font: inherit;
+}
+
+.stage5 button:disabled {
+  opacity: .65;
+  cursor: default;
+}
+
+.suitcase {
+  overflow: hidden;
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background-size: cover;
+  background-position: center;
+}
+
+.suitcase--boards {
+  background-image: url('./assets/stage6-floor-boards.jpg');
+}
+
+.suitcase--stone {
+  background-image: url('./assets/stage6-floor-stone.jpg');
+}
+
+.suitcase--parquet {
+  background-image: url('./assets/stage6-floor-parquet.jpg');
+}
+
+.suitcase .stage5__art {
+  background: transparent;
+  object-fit: contain;
+  padding: 8%;
+}
+
+.suitcase__finds {
+  position: absolute;
+  top: 34%;
+  left: 55%;
+  right: 14%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.suitcase__finds button {
+  min-width: 52px;
+  min-height: 52px;
+  padding: 2px;
+  border-color: transparent;
+  background: #211b1729;
+}
+
+.suitcase__finds button:hover {
+  border-color: var(--amber);
+  background: #211b1755;
+}
+
+.suitcase__item {
+  display: block;
+  width: clamp(48px, 8vw, 100px);
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
+.suitcase__finds [aria-pressed="true"] {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.stage6__concealed {
+  margin: 8px 12px 0;
+}
+
+.garage__header:has([data-screen-focus="home"]) {
+  flex-wrap: wrap;
+}
+
+@media (min-width: 760px) {
+  .stage5__layout {
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+    gap: 18px;
+  }
+
+  .stage5__market {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

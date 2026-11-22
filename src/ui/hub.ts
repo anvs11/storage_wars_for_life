@@ -1,5 +1,5 @@
 import type { Stage4Command, Stage4Dispatch, Stage4HubView } from '../game/stage4-contract';
-import { actionButton, bankFor, dollars, element, replaceScreen } from './dom';
+import { actionButton, bankFor, rubles, element, replaceScreen } from './dom';
 import { relationshipGoalFor } from './relationship';
 
 type HubView = Stage4HubView;
@@ -26,12 +26,12 @@ function offerMessage(offer: HubOffer): string {
   switch (offer.availability) {
     case 'owned': return 'Уже куплено';
     case 'statusLocked': return `Нужно ${offer.requiredStatus} очков`;
-    case 'fundsLocked': return `Нужно ${dollars(offer.price)} для покупки`;
+    case 'fundsLocked': return `Нужно ${rubles(offer.price)} для покупки`;
     case 'ready': return '';
   }
 }
 
-export function mountHub(root: HTMLElement, view: HubView, dispatch: Stage4Dispatch): void {
+export function mountHub(root: HTMLElement, view: HubView, dispatch: Stage4Dispatch, goHome?: () => void): void {
   const screen = element('section', 'garage hub');
   const header = element('header', 'garage__header');
   const title = element('h1', 'garage__title', 'Между торгами');
@@ -52,11 +52,11 @@ export function mountHub(root: HTMLElement, view: HubView, dispatch: Stage4Dispa
     const hasStatus = auction.availability !== 'statusLocked';
     card.append(
       element('h3', 'hub__name', auction.title),
-      element('p', 'hub__detail', `Старт ${dollars(auction.openingBid)}`),
+      element('p', 'hub__detail', `Старт ${rubles(auction.openingBid)}`),
       element('p', 'hub__detail', hasStatus ? 'Доступ по рейтингу открыт' : `Нужно ${auction.requiredStatus} очков`),
     );
     if (auction.availability === 'fundsLocked' || auction.availability === 'recovery') {
-      card.append(element('p', 'hub__reason', `Нужно ${dollars(auction.openingBid)} для ставки`));
+      card.append(element('p', 'hub__reason', `Нужно ${rubles(auction.openingBid)} для ставки`));
     }
     if (view.allowedActions.includes('enterAuction') &&
         (auction.availability === 'ready' || auction.availability === 'recovery')) {
@@ -87,11 +87,11 @@ export function mountHub(root: HTMLElement, view: HubView, dispatch: Stage4Dispa
     for (const offer of group) {
       const row = element('div', 'hub__offer');
       if (offer !== first) row.append(element('strong', '', offer.title));
-      row.append(element('p', 'hub__detail', `${dollars(offer.price)} · +${offer.statusGain} к рейтингу`));
+      row.append(element('p', 'hub__detail', `${rubles(offer.price)} · +${offer.statusGain} к рейтингу`));
       const reason = offerMessage(offer);
       if (reason) row.append(element('p', 'hub__reason', reason));
       if (offer.availability === 'ready' && view.allowedActions.includes('spend')) {
-        const control = button(`Потратить ${dollars(offer.price)}`,
+        const control = button(`Потратить ${rubles(offer.price)}`,
           { type: 'spend', offerId: offer.id, expectedRevision: view.revision }, `offer:${offer.id}`);
         control.setAttribute('aria-label', `${offer.title}: ${control.textContent}`);
         row.append(control);
@@ -104,7 +104,7 @@ export function mountHub(root: HTMLElement, view: HubView, dispatch: Stage4Dispa
 
   const airport = element('section', 'hub__section garage__panel');
   airport.append(element('h2', 'garage__heading', 'Аэропорт'),
-    element('p', 'hub__detail', `Закрытый чемодан · ${dollars(view.baggagePrice)}`));
+    element('p', 'hub__detail', `Закрытый чемодан · ${rubles(view.baggagePrice)}`));
   if (view.allowedActions.includes('callAirport')) {
     airport.append(button('Позвонить в аэропорт', { type: 'callAirport', expectedRevision: view.revision }, 'airport'));
   }
@@ -120,6 +120,11 @@ export function mountHub(root: HTMLElement, view: HubView, dispatch: Stage4Dispa
     relationship.append(button(label, { type: 'openRelationship', expectedRevision: view.revision }, 'relationship'));
   }
 
+  if (goHome) {
+    const home = actionButton('Вернуться домой', 'garage__button', goHome);
+    home.dataset.screenFocus = 'home';
+    header.firstElementChild?.after(home);
+  }
   screen.append(header, statusFor(view), auctions, relationship, spending, airport);
   replaceScreen(root, screen, title);
 }

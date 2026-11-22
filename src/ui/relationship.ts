@@ -3,7 +3,7 @@ import type {
 } from '../game/stage4-contract';
 import epilogueImage from './assets/relationship-home.jpg';
 import neighborImage from './assets/relationship-neighbor.jpg';
-import { actionButton, bankFor, dollars, element, replaceScreen } from './dom';
+import { actionButton, bankFor, rubles, element, replaceScreen } from './dom';
 import './relationship.css';
 
 const scenes = {
@@ -48,14 +48,14 @@ const actions: Record<RelationshipGoalAction, string> = {
 
 export function relationshipGoalFor(goal: RelationshipGoal, status: number, bank: number): HTMLElement {
   const block = element('div', 'relationship__goal');
-  const price = goal.price === null ? '' : ` · ${dollars(goal.price)}`;
+  const price = goal.price === null ? '' : ` · ${rubles(goal.price)}`;
   block.append(element('strong', '', actions[goal.action] + price));
 
   if (goal.requiredStatus !== null && status < goal.requiredStatus) {
     block.append(element('p', 'relationship__condition', `Нужно ${goal.requiredStatus} очков рейтинга. Сейчас ${status}.`));
   }
   if (goal.price !== null && bank < goal.price) {
-    block.append(element('p', 'relationship__condition', `Не хватает ${dollars(goal.price - bank)}.`));
+    block.append(element('p', 'relationship__condition', `Не хватает ${rubles(goal.price - bank)}.`));
   }
   if (goal.missingUpgrades.length) {
     const upgrades = goal.missingUpgrades.map((asset) => asset === 'home' ? 'дом' : 'машину');
@@ -90,7 +90,7 @@ export function mountRelationship(root: HTMLElement, view: RelationshipView, dis
   if (goal) {
     panel.append(relationshipGoalFor(goal, view.status, view.bank));
     if (goal.canProceed && view.allowedActions.includes(goal.action)) {
-      const price = goal.price === null ? '' : ` за ${dollars(goal.price)}`;
+      const price = goal.price === null ? '' : ` за ${rubles(goal.price)}`;
       controls.append(actionButton(actions[goal.action] + price, 'garage__button garage__button--primary',
         () => dispatch({ type: goal.action, expectedRevision: view.revision })));
     }

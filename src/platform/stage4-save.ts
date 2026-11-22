@@ -1,6 +1,7 @@
 import { canOpenRelationship, isRelationshipStep } from '../game/relationships';
 import type { Stage4Command } from '../game/stage4-contract';
 import { applyCommand, migrateStage3 } from '../game/stage4-engine';
+import type { GameEconomy } from '../game/stage3-engine';
 import type { Stage4State } from '../game/stage4-engine';
 import { exactKeys, isRecord, loadSnapshot, writeSnapshot } from './save';
 import type { LoadResult, SavedCommandResult, SaveResult, SaveStorage } from './save';
@@ -8,15 +9,15 @@ import { decodeStage3Snapshot, isStage3State } from './stage3-save';
 
 const version = 3;
 
-function isStage4State(value: unknown): value is Stage4State {
+export function isStage4State(value: unknown, economy?: GameEconomy, rubles = false): value is Stage4State {
   if (!isRecord(value) || !exactKeys(value, ['game', 'relationshipStep', 'relationshipOpen'])) return false;
   const { game, relationshipStep, relationshipOpen } = value;
-  if (!isStage3State(game) || !isRelationshipStep(relationshipStep, game.status, game.assets)) return false;
+  if (!isStage3State(game, economy, rubles) || !isRelationshipStep(relationshipStep, game.status, game.assets)) return false;
   return relationshipOpen === false ||
     (relationshipOpen === true && game.phase === 'hub' && canOpenRelationship(game.status));
 }
 
-function decode(serialized: string | null): Stage4State | null {
+export function decodeStage4(serialized: string | null): Stage4State | null {
   if (serialized === null) return null;
   try {
     const value: unknown = JSON.parse(serialized);
@@ -30,11 +31,11 @@ function decode(serialized: string | null): Stage4State | null {
 }
 
 export function load(storage: SaveStorage): LoadResult<Stage4State> {
-  return loadSnapshot(storage, decode);
+  return loadSnapshot(storage, decodeStage4);
 }
 
 export function save(storage: SaveStorage, state: Stage4State): SaveResult {
-  return writeSnapshot(storage, { version, state }, decode);
+  return writeSnapshot(storage, { version, state }, decodeStage4);
 }
 
 export function applySavedCommand(

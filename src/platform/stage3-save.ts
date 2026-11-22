@@ -1,9 +1,9 @@
-import { baggagePrice, chooseBaggage } from '../game/baggage';
+import { createLot } from '../game/catalog';
 import { auctions, tiers } from '../game/progression';
 import { draw } from '../game/random';
-import { advanceAuctionPrice, generateLot } from '../game/repeat-auctions';
+import { migrateLot } from '../game/stage5-economy';
 import type { AuctionTier, Stage3Command } from '../game/stage3-contract';
-import { applyCommand, migrateStage2 } from '../game/stage3-engine';
+import { applyCommand, legacyEconomy, migrateStage2 } from '../game/stage3-engine';
 import type { Stage3State } from '../game/stage3-engine';
 import {
   areIds, exactKeys, getSavedInventory, isGarageSnapshot, isMoney, isRecord, isStage2State,
@@ -23,7 +23,7 @@ function isTier(value: unknown): value is AuctionTier {
   return value === 'ordinary' || value === 'selected' || value === 'antique';
 }
 
-export function isStage3State(value: unknown): value is Stage3State {
+export function isStage3State(value: unknown, economy = legacyEconomy, rubles = false): value is Stage3State {
   if (!isRecord(value)) return false;
   const { nextSeed, offerSeeds, assets, ...core } = value;
   if (!isSeed(nextSeed) || !isRecord(offerSeeds) || !exactKeys(offerSeeds, tiers) ||
@@ -33,33 +33,37 @@ export function isStage3State(value: unknown): value is Stage3State {
   if (!isMoney(revision) || !isMoney(bank) || !isMoney(status)) return false;
   if (assets.length * 5 > status) return false;
   if (phase === 'prologue') return isStage2State(core);
-  if (!isMoney(lotNumber) || lotNumber < 1 || lotNumber > revision) return false;
+  if (!isMoney(lotNumber) || (!rubles && lotNumber < 1) || lotNumber > revision) return false;
 
   if (phase === 'hub' || phase === 'airportOffer') return exactKeys(core, profileKeys);
   if (phase === 'baggageInventory' || phase === 'baggageResult') {
     const { baggageSeed } = core;
     if (!isSeed(baggageSeed)) return false;
     const roll = draw(baggageSeed);
-    const contents = chooseBaggage(() => roll.value);
+    const contents = economy.baggageContents(() => roll.value);
     if (roll.seed !== nextSeed || !matches(core.contents, contents)) return false;
     const inventory = getSavedInventory(core, contents);
     if (!inventory || bank < inventory.revenue) return false;
     if (phase === 'baggageInventory') {
-      return exactKeys(core, [...baggageKeys, 'purchasePrice']) && core.purchasePrice === baggagePrice && inventory.hasRemaining;
+      return exactKeys(core, [...baggageKeys, 'purchasePrice']) && core.purchasePrice === economy.baggagePrice && inventory.hasRemaining;
     }
     return exactKeys(core, [...baggageKeys, 'receipt']) && !inventory.hasRemaining &&
       matches(core.receipt, {
-        outcome: 'sold', purchasePrice: baggagePrice, revenue: inventory.revenue,
-        profit: inventory.revenue - baggagePrice,
+        outcome: 'sold', purchasePrice: economy.baggagePrice, revenue: inventory.revenue,
+        profit: inventory.revenue - economy.baggagePrice,
       });
   }
 
   const { tier, lotSeed, ...garage } = core;
   if (!isTier(tier)) return false;
-  if (lotSeed === null) return tier === 'ordinary' && isStage2State(garage);
+  if (lotSeed === null) {
+    return tier === 'ordinary' && (rubles
+      ? isGarageSnapshot(garage, migrateLot(createLot(lotNumber)))
+      : isStage2State(garage));
+  }
   return isSeed(lotSeed) && status >= auctions[tier].requiredStatus &&
     (phase !== 'recovery' || tier === 'ordinary') &&
-    isGarageSnapshot(garage, generateLot(tier, lotSeed, lotNumber), advanceAuctionPrice);
+    isGarageSnapshot(garage, economy.lot(tier, lotSeed, lotNumber), economy.advancePrice);
 }
 
 export function decodeStage3Snapshot(value: unknown): Stage3State | null {

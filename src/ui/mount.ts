@@ -1,12 +1,12 @@
-import type { Stage3AuctionView, Stage3Command, Stage3Dispatch, Stage3View } from '../game/stage3-contract';
-import type { Stage4Mount } from '../game/stage4-contract';
+import type { Stage3AuctionView, Stage3Command, Stage3Dispatch } from '../game/stage3-contract';
+import type { Stage5Mount } from '../game/stage5-contract';
 import { mountBaggage } from './baggage';
-import { actionButton, addFact, bankFor, dollars, element } from './dom';
+import { actionButton, addFact, bankFor, rubles, element } from './dom';
 import { garageScenes } from './garage-scenes';
 import { mountHub } from './hub';
 import { inventoryFor, receiptFacts, saleFacts } from './inventory';
 import { mountRelationship } from './relationship';
-import { mountStory } from './story';
+import { mountNewScene } from './stage5';
 import './garage.css';
 import './stage3.css';
 
@@ -14,11 +14,11 @@ function factsFor(view: Stage3AuctionView): HTMLDListElement {
   const facts = element('dl', 'garage__facts');
   switch (view.phase) {
     case 'inspection':
-      addFact(facts, 'Стартовая ставка', dollars(view.nextBidAmount));
+      addFact(facts, 'Стартовая ставка', rubles(view.nextBidAmount));
       break;
     case 'bidding':
-      addFact(facts, 'Ваша ставка', dollars(view.lastPlayerBid));
-      addFact(facts, view.leaderName, dollars(view.currentPrice));
+      addFact(facts, 'Ваша ставка', rubles(view.lastPlayerBid));
+      addFact(facts, view.leaderName, rubles(view.currentPrice));
       break;
     case 'reveal':
       return saleFacts(view);
@@ -86,7 +86,7 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
         hint.append(element('strong', '', item.name), document.createTextNode(` ${item.hint.text}`));
         const estimate = item.hint.estimatedSalePrice;
         if (estimate) {
-          hint.append(element('span', 'garage__estimate', `Оценка предмета: ${dollars(estimate.min)}–${dollars(estimate.max)}`));
+          hint.append(element('span', 'garage__estimate', `Оценка предмета: ${rubles(estimate.min)}–${rubles(estimate.max)}`));
         }
         hints.append(hint);
         inspected.set(key, hint);
@@ -97,6 +97,9 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
     }
   }
   scene.append(photo);
+  if (auctionOpen && view.visibleItems.some(({ name }) => name === 'Вещи за ширмой')) {
+    scene.append(element('p', 'garage__prompt stage6__concealed', 'Ширма закрывает часть лота.'));
+  }
   if (auctionOpen) scene.append(items, hints);
 
   const panel = element('section', 'garage__panel');
@@ -111,7 +114,7 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
   heading.dataset.garageFocus = 'heading';
   const controls = element('div', 'garage__controls');
   if (allowed.has('bid') && view.nextBidAmount !== null) {
-    controls.append(button(`Ставка ${dollars(view.nextBidAmount)}`, {
+    controls.append(button(`Ставка ${rubles(view.nextBidAmount)}`, {
       type: 'bid', expectedRevision: view.revision,
     }, 'bid', 'garage__button garage__button--primary'));
   }
@@ -135,7 +138,7 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
     panel.append(inventoryFor(view, button));
   }
   if (auctionOpen && !allowed.has('bid')) {
-    panel.append(element('p', 'garage__prompt', `Следующая ставка ${dollars(view.nextBidAmount)} недоступна.`));
+    panel.append(element('p', 'garage__prompt', `Следующая ставка ${rubles(view.nextBidAmount)} недоступна.`));
   }
   panel.append(controls);
   layout.append(scene, panel);
@@ -151,36 +154,10 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
   }
 }
 
-function mountRecovery(root: HTMLElement, view: Extract<Stage3View, { phase: 'recovery' }>, dispatch: Stage3Dispatch): void {
-  const restoreFocus = root.contains(document.activeElement);
-  const screen = element('section', 'garage');
-  const header = element('header', 'garage__header');
-  const title = element('h1', 'garage__title', 'Восстановление банка');
-  title.tabIndex = -1;
-  header.append(title, bankFor(view.bank));
-
-  const panel = element('div', 'garage__panel garage__panel--recovery');
-  const facts = element('dl', 'garage__facts');
-  addFact(facts, 'Минимальная ставка', dollars(view.minimumBid));
-  addFact(facts, 'Оплата за сортировку', dollars(view.reward));
-  panel.append(facts);
-
-  if (view.allowedActions.includes('sortGarage')) {
-    const sort = actionButton('Рассортировать гараж', 'garage__button garage__button--primary', () => {
-      dispatch({ type: 'sortGarage', expectedRevision: view.revision });
-    });
-    sort.dataset.garageFocus = 'sortGarage';
-    panel.append(sort);
-  }
-  screen.append(header, panel);
-  root.replaceChildren(screen);
-  if (restoreFocus) title.focus();
-}
-
-export const mountStage4: Stage4Mount = (root, view, dispatch) => {
+export const mountStage5: Stage5Mount = (root, view, dispatch) => {
   switch (view.phase) {
     case 'hub':
-      mountHub(root, view, dispatch);
+      mountHub(root, view, dispatch, () => dispatch({ type: 'navigate', room: 'home', expectedRevision: view.revision }));
       break;
     case 'relationship':
       mountRelationship(root, view, dispatch);
@@ -190,11 +167,15 @@ export const mountStage4: Stage4Mount = (root, view, dispatch) => {
     case 'baggageResult':
       mountBaggage(root, view, dispatch);
       break;
-    case 'prologue':
-      mountStory(root, view, dispatch);
-      break;
-    case 'recovery':
-      mountRecovery(root, view, dispatch);
+    case 'opening':
+    case 'baggageArrival':
+    case 'cargo':
+    case 'job':
+    case 'home':
+    case 'garage':
+    case 'market':
+    case 'inbox':
+      mountNewScene(root, view, dispatch);
       break;
     default:
       mountAuction(root, view, dispatch);
