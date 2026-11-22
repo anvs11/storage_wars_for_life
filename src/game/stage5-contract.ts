@@ -54,7 +54,6 @@ export interface SaleView {
 
 type Shared = { readonly bank: number; readonly revision: number };
 type RoomView = Shared & {
-  readonly phase: Room;
   readonly items: readonly GarageItemView[];
   readonly listings: readonly ListingView[];
   readonly unread: number;
@@ -62,7 +61,7 @@ type RoomView = Shared & {
   readonly lastSale: SaleView | null;
   readonly lastDeal: { readonly lotNumber: number; readonly receipt: PassedReceipt | SoldReceipt } | null;
   readonly deals: readonly { readonly lotNumber: number; readonly cost: number; readonly revenue: number }[];
-};
+} & { [Name in Room]: { readonly phase: Name } }[Room];
 
 export type Stage5View = Exclude<Stage4View, { phase: 'prologue' | 'reveal' | 'recovery' }> | RoomView
   | (Shared & { readonly phase: 'opening'; readonly frame: typeof prologueFrames[number] })

@@ -1,4 +1,5 @@
 import { baggagePrice, chooseBaggage } from './baggage';
+import type { GarageLot } from './catalog';
 import type { SoldReceipt } from './contract';
 import { emptyInventory, interactWithInventory, inventoryView } from './inventory';
 import type { InventoryContents, InventoryProgress } from './inventory';
@@ -9,6 +10,21 @@ import { advanceAuctionPrice, generateLot, openingBidFor } from './repeat-auctio
 import { applyGarageCommand, applyStoryCommand, enterLot, getView as getGarageView, initialPrologue } from './stage2-engine';
 import type { GarageState, Stage2State } from './stage2-engine';
 import type { AuctionTier, OfferId, Stage3Command, Stage3Scene, Stage3View } from './stage3-contract';
+
+export interface GameEconomy {
+  readonly openingBid: (tier: AuctionTier, seed: number, lotNumber: number) => number;
+  readonly lot: (tier: AuctionTier, seed: number, lotNumber: number) => GarageLot<Stage3Scene>;
+  readonly advancePrice: (price: number) => number;
+  readonly offerPrice: (offerId: OfferId) => number;
+  readonly baggagePrice: number;
+  readonly baggageContents: typeof chooseBaggage;
+  readonly flowerPrice: number;
+}
+
+export const legacyEconomy: GameEconomy = {
+  openingBid: openingBidFor, lot: generateLot, advancePrice: advanceAuctionPrice,
+  offerPrice: (id) => offers[id].price, baggagePrice, baggageContents: chooseBaggage, flowerPrice: 8,
+};
 
 export interface Stage3Progress {
   readonly nextSeed: number;
@@ -71,17 +87,17 @@ export function migrateStage2(state: Stage2State): Stage3State {
 
 type HubView = Extract<Stage3View, { phase: 'hub' }>;
 
-function auctionEntry(tier: AuctionTier, state: BetweenLots & Stage3Progress): HubView['auctions'][number] {
+function auctionEntry(tier: AuctionTier, state: BetweenLots & Stage3Progress, economy: GameEconomy): HubView['auctions'][number] {
   const { title, requiredStatus } = auctions[tier];
-  const openingBid = openingBidFor(tier, state.offerSeeds[tier]);
+  const openingBid = economy.openingBid(tier, state.offerSeeds[tier], state.lotNumber + 1);
   const common = { tier, title, requiredStatus, openingBid };
   if (state.status < requiredStatus) return { ...common, availability: 'statusLocked' };
   if (state.bank < openingBid) return { ...common, availability: tier === 'ordinary' ? 'recovery' : 'fundsLocked' };
   return { ...common, availability: 'ready' };
 }
 
-function offerEntry(id: OfferId, state: BetweenLots & Stage3Progress): HubView['offers'][number] {
-  const offer = { id, ...offers[id] };
+function offerEntry(id: OfferId, state: BetweenLots & Stage3Progress, economy: GameEconomy): HubView['offers'][number] {
+  const offer = { id, ...offers[id], price: economy.offerPrice(id) };
   if (isAsset(id) && state.assets.includes(id)) return { ...offer, availability: 'owned' };
   if (state.status < offer.requiredStatus) return { ...offer, availability: 'statusLocked' };
   return { ...offer, availability: state.bank >= offer.price ? 'ready' : 'fundsLocked' };
@@ -92,8 +108,8 @@ function nextProfile(state: BetweenLots & Stage3Progress): BetweenLots & Stage3P
   return { bank, status, lotNumber, revision: state.revision + 1, nextSeed, offerSeeds, assets };
 }
 
-export function applySpending(state: Stage3HubState, offerId: OfferId): Stage3HubState {
-  const offer = offerEntry(offerId, state);
+export function applySpending(state: Stage3HubState, offerId: OfferId, economy = legacyEconomy): Stage3HubState {
+  const offer = offerEntry(offerId, state, economy);
   if (offer.availability !== 'ready') return state;
   return {
     ...state, revision: state.revision + 1, bank: state.bank - offer.price, status: state.status + offer.statusGain,
@@ -101,18 +117,18 @@ export function applySpending(state: Stage3HubState, offerId: OfferId): Stage3Hu
   };
 }
 
-function applyHubCommand(state: Stage3HubState, command: Stage3Command): Stage3State {
+function applyHubCommand(state: Stage3HubState, command: Stage3Command, economy = legacyEconomy): Stage3State {
   switch (command.type) {
     case 'enterAuction': {
       const { tier } = command;
-      const { availability } = auctionEntry(tier, state);
+      const { availability } = auctionEntry(tier, state, economy);
       if (availability !== 'ready' && availability !== 'recovery') return state;
       const profile = nextProfile(state);
       const lotSeed = state.offerSeeds[tier];
       const next = draw(state.nextSeed);
       const lotNumber = profile.lotNumber + 1;
       return {
-        ...enterLot(profile, lotNumber, generateLot(tier, lotSeed, lotNumber)),
+        ...enterLot(profile, lotNumber, economy.lot(tier, lotSeed, lotNumber)),
         tier,
         lotSeed,
         assets: profile.assets,
@@ -121,7 +137,7 @@ function applyHubCommand(state: Stage3HubState, command: Stage3Command): Stage3S
       };
     }
     case 'spend':
-      return applySpending(state, command.offerId);
+      return applySpending(state, command.offerId, economy);
     case 'callAirport':
       return { ...nextProfile(state), phase: 'airportOffer' };
     default:
@@ -129,16 +145,16 @@ function applyHubCommand(state: Stage3HubState, command: Stage3Command): Stage3S
   }
 }
 
-function applyAirportCommand(state: AirportState & Stage3Progress, command: Stage3Command): Stage3State {
+function applyAirportCommand(state: AirportState & Stage3Progress, command: Stage3Command, economy = legacyEconomy): Stage3State {
   const profile = nextProfile(state);
   if (command.type === 'returnToHub' && state.phase !== 'baggageInventory') {
     return { ...profile, phase: 'hub' };
   }
-  if (state.phase === 'airportOffer' && command.type === 'buyBaggage' && state.bank >= baggagePrice) {
+  if (state.phase === 'airportOffer' && command.type === 'buyBaggage' && state.bank >= economy.baggagePrice) {
     const next = draw(state.nextSeed);
     return {
-      ...profile, phase: 'baggageInventory', bank: state.bank - baggagePrice, purchasePrice: baggagePrice,
-      baggageSeed: state.nextSeed, nextSeed: next.seed, contents: chooseBaggage(() => next.value), ...emptyInventory,
+      ...profile, phase: 'baggageInventory', bank: state.bank - economy.baggagePrice, purchasePrice: economy.baggagePrice,
+      baggageSeed: state.nextSeed, nextSeed: next.seed, contents: economy.baggageContents(() => next.value), ...emptyInventory,
     };
   }
   if (state.phase !== 'baggageInventory') return state;
@@ -155,11 +171,11 @@ function applyAirportCommand(state: AirportState & Stage3Progress, command: Stag
     : { ...next, phase: 'baggageInventory', purchasePrice: state.purchasePrice };
 }
 
-export function applyCommand(state: Stage3State, command: Stage3Command): Stage3State {
+export function applyCommand(state: Stage3State, command: Stage3Command, economy = legacyEconomy): Stage3State {
   if (state.revision !== command.expectedRevision) return state;
-  if (state.phase === 'hub') return applyHubCommand(state, command);
+  if (state.phase === 'hub') return applyHubCommand(state, command, economy);
   if (state.phase === 'airportOffer' || state.phase === 'baggageInventory' || state.phase === 'baggageResult') {
-    return applyAirportCommand(state, command);
+    return applyAirportCommand(state, command, economy);
   }
   if (command.type === 'enterAuction' || command.type === 'spend' || command.type === 'callAirport' ||
       command.type === 'buyBaggage' || command.type === 'returnToHub') return state;
@@ -176,27 +192,27 @@ export function applyCommand(state: Stage3State, command: Stage3Command): Stage3
   if (state.phase === 'result' && command.type === 'nextLot') {
     return { ...nextProfile(state), phase: 'hub' };
   }
-  const next = applyGarageCommand(state, command, state.lotSeed === null ? undefined : advanceAuctionPrice);
+  const next = applyGarageCommand(state, command, state.lotSeed === null ? undefined : economy.advancePrice);
   return next === state ? state : { ...next, ...progress, tier: state.tier, lotSeed: state.lotSeed };
 }
 
-export function getView(state: Stage3State): Stage3View {
+export function getView(state: Stage3State, economy = legacyEconomy): Stage3View {
   const { phase, bank, revision } = state;
   const base = { revision, bank };
   switch (phase) {
     case 'hub': {
-      const auctionEntries = tiers.map((tier) => auctionEntry(tier, state));
-      const offerEntries = offerIds.map((id) => offerEntry(id, state));
+      const auctionEntries = tiers.map((tier) => auctionEntry(tier, state, economy));
+      const offerEntries = offerIds.map((id) => offerEntry(id, state, economy));
       const upcoming = auctionEntries.find(({ requiredStatus }) => requiredStatus > state.status);
       const nextUnlock = upcoming ? { title: upcoming.title, requiredStatus: upcoming.requiredStatus } : null;
       const allowedActions: ('enterAuction' | 'spend' | 'callAirport')[] = ['enterAuction'];
       if (offerEntries.some(({ availability }) => availability === 'ready')) allowedActions.push('spend');
       allowedActions.push('callAirport');
-      return { ...base, phase, status: state.status, nextUnlock, auctions: auctionEntries, offers: offerEntries, baggagePrice, allowedActions };
+      return { ...base, phase, status: state.status, nextUnlock, auctions: auctionEntries, offers: offerEntries, baggagePrice: economy.baggagePrice, allowedActions };
     }
     case 'airportOffer': {
-      const canAfford = bank >= baggagePrice;
-      return { ...base, phase, price: baggagePrice, canAfford, allowedActions: canAfford ? ['buyBaggage', 'returnToHub'] : ['returnToHub'] };
+      const canAfford = bank >= economy.baggagePrice;
+      return { ...base, phase, price: economy.baggagePrice, canAfford, allowedActions: canAfford ? ['buyBaggage', 'returnToHub'] : ['returnToHub'] };
     }
     case 'baggageInventory':
       return { ...base, phase, ...inventoryView(state.contents, state) };
@@ -205,7 +221,7 @@ export function getView(state: Stage3State): Stage3View {
     case 'prologue':
       return getGarageView(state);
     default: {
-      const view = getGarageView(state, state.lotSeed === null ? undefined : advanceAuctionPrice);
+      const view = getGarageView(state, state.lotSeed === null ? undefined : economy.advancePrice);
       if (view.phase === 'recovery' || view.phase === 'prologue') return view;
       return { ...view, tier: state.tier };
     }
