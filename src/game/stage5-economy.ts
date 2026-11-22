@@ -31,7 +31,7 @@ const ranges = {
   signedClock: [[3500, 7900], [11500, 26000], [74000, 125000]],
 } as const satisfies PriceRanges;
 
-const pricing: RepeatPricing = {
+export const rubleAuctionPricing: RepeatPricing = {
   ranges,
   bidIncrement: 500,
   tiers: {
@@ -74,7 +74,7 @@ const openingBid: GameEconomy['openingBid'] = (tier, seed, lotNumber) => {
 export const rubleEconomy: GameEconomy = {
   openingBid,
   lot: (tier, seed, lotNumber) => lotNumber === 1 && tier === 'ordinary'
-    ? tutorial : generateLot(tier, seed, lotNumber, pricing, openingBid(tier, seed, lotNumber)),
+    ? tutorial : generateLot(tier, seed, lotNumber, rubleAuctionPricing, openingBid(tier, seed, lotNumber)),
   advancePrice: (price) => price + (price < 5000 ? 500 : price < 10000 ? 1000 : price < 30000 ? 1500 : 3000),
   offerPrice: (id) => offerPrices[id],
   flowerPrice: 850,

@@ -97,6 +97,9 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
     }
   }
   scene.append(photo);
+  if (auctionOpen && view.visibleItems.some(({ name }) => name === 'Вещи за ширмой')) {
+    scene.append(element('p', 'garage__prompt stage6__concealed', 'Ширма закрывает часть лота.'));
+  }
   if (auctionOpen) scene.append(items, hints);
 
   const panel = element('section', 'garage__panel');
@@ -165,6 +168,7 @@ export const mountStage5: Stage5Mount = (root, view, dispatch) => {
       mountBaggage(root, view, dispatch);
       break;
     case 'opening':
+    case 'baggageArrival':
     case 'cargo':
     case 'job':
     case 'home':

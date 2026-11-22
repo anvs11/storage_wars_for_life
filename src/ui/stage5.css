@@ -133,6 +133,72 @@
   cursor: default;
 }
 
+.suitcase {
+  overflow: hidden;
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background-size: cover;
+  background-position: center;
+}
+
+.suitcase--boards {
+  background-image: url('./assets/stage6-floor-boards.jpg');
+}
+
+.suitcase--stone {
+  background-image: url('./assets/stage6-floor-stone.jpg');
+}
+
+.suitcase--parquet {
+  background-image: url('./assets/stage6-floor-parquet.jpg');
+}
+
+.suitcase .stage5__art {
+  background: transparent;
+  object-fit: contain;
+  padding: 8%;
+}
+
+.suitcase__finds {
+  position: absolute;
+  top: 34%;
+  left: 55%;
+  right: 14%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.suitcase__finds button {
+  min-width: 52px;
+  min-height: 52px;
+  padding: 2px;
+  border-color: transparent;
+  background: #211b1729;
+}
+
+.suitcase__finds button:hover {
+  border-color: var(--amber);
+  background: #211b1755;
+}
+
+.suitcase__item {
+  display: block;
+  width: clamp(48px, 8vw, 100px);
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
+.suitcase__finds [aria-pressed="true"] {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.stage6__concealed {
+  margin: 8px 12px 0;
+}
+
 .garage__header:has([data-screen-focus="home"]) {
   flex-wrap: wrap;
 }

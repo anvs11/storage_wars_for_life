@@ -3,13 +3,19 @@ import { roomNames } from '../game/stage5-contract';
 import bar from './assets/stage5-bar.jpg';
 import garage from './assets/stage5-garage.jpg';
 import yard from './assets/stage5-yard.jpg';
+import courier from './assets/stage6-courier.jpg';
+import caseClosed from './assets/stage6-suitcase-closed.png';
+import caseOpen from './assets/stage6-suitcase-open.png';
+import travelKit from './assets/stage6-travel-kit.png';
+import travelSpeaker from './assets/stage6-travel-speaker.png';
+import travelCamera from './assets/stage6-travel-camera.png';
 import { actionButton, addFact, bankFor, element, replaceScreen, rubles } from './dom';
 import { garageScenes } from './garage-scenes';
 import { receiptFacts } from './inventory';
 import './stage5.css';
 
 type RoomView = Extract<Stage5View, { phase: typeof roomNames[number] }>;
-type NewView = Extract<Stage5View, { phase: 'opening' | 'cargo' | 'job' | typeof roomNames[number] }>;
+type NewView = Extract<Stage5View, { phase: 'opening' | 'cargo' | 'job' | 'baggageArrival' | typeof roomNames[number] }>;
 type WithoutRevision<Command> = Command extends Stage5Command ? Omit<Command, 'expectedRevision'> : never;
 type Action = WithoutRevision<Stage5Command>;
 
@@ -39,12 +45,16 @@ function capacityLabel(label: string, capacity: Capacity): string {
 function itemFacts(item: GarageItemView): HTMLDListElement {
   const facts = element('dl', 'garage__facts');
   addFact(facts, 'Состояние', conditions[item.condition]);
-  addFact(facts, 'Оценка', `${rubles(item.estimate.min)}–${rubles(item.estimate.max)}`);
+  const { min, max } = item.estimate;
+  addFact(facts, 'Оценка', min === max ? rubles(min) : `${rubles(min)}–${rubles(max)}`);
   addFact(facts, 'Занимает мест', String(item.size));
   return facts;
 }
 
 function itemIcon(item: GarageItemView): string {
+  if (item.position === 'jewelryBox') return '💍';
+  if (/сервиз/i.test(item.name)) return '🍽️';
+  if (/фотоаппарат/i.test(item.name)) return '📷';
   if (/чайник/i.test(item.name)) return '🫖';
   if (/велосипед/i.test(item.name)) return '🚲';
   if (/лампа|светильник/i.test(item.name)) return '💡';
@@ -66,7 +76,8 @@ export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5
 
   const screen = element('section', 'garage stage5');
   const label = view.phase === 'opening' ? frames[view.frame].title
-    : view.phase === 'cargo' ? `Гараж куплен · лот №${view.lotNumber}`
+    : view.phase === 'baggageArrival' ? 'Курьер из аэропорта'
+    : view.phase === 'cargo' ? view.baggage ? 'Чемодан' : `Гараж куплен · лот №${view.lotNumber}`
     : view.phase === 'job' ? 'Подработка в гараже' : roomLabels[view.phase];
   const header = element('header', 'garage__header');
   const title = element('h1', 'garage__title', label);
@@ -83,27 +94,53 @@ export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5
       control('Пропустить пролог', { type: 'skipStory' }, 'skip'));
     layout.append(art(frame.image, frame.alt), panel);
     screen.append(layout);
+  } else if (view.phase === 'baggageArrival') {
+    const layout = element('div', 'stage5__layout');
+    const panel = element('section', 'garage__panel');
+    panel.append(element('p', 'stage5__copy', 'Курьер приехал с оплаченным чемоданом. Забери его и посмотри, что внутри.'),
+      control('Забрать чемодан', { type: 'receiveBaggage' }, 'receive', true));
+    layout.append(art(courier, 'Курьер с чемоданом у дома.'), panel);
+    screen.append(layout);
   } else if (view.phase === 'cargo') {
     const layout = element('div', 'stage5__layout');
     const left = element('section', 'stage5__stack');
     const scene = garageScenes[view.sceneId];
-    const close = element('div', 'stage5__close');
-    close.append(art(scene.image, scene.alt));
+    const close = element('div', view.baggage ? `suitcase suitcase--${view.floor ?? 'boards'}` : 'stage5__close');
+    if (view.baggage) {
+      const closed = view.boxes.length > 0;
+      close.append(art(closed ? caseClosed : caseOpen, closed ? 'Закрытый чемодан на полу.' : 'Открытый чемодан на полу, вид сверху.'));
+      if (!closed) {
+        const finds = element('div', 'suitcase__finds');
+        for (const item of view.items) {
+          const pick = control('', { type: 'toggleCargo', itemId: item.id }, `case:${item.id}`);
+          const picture = element('img', 'suitcase__item');
+          picture.src = /фотоаппарат/i.test(item.name) ? travelCamera : /колонка/i.test(item.name) ? travelSpeaker : travelKit;
+          picture.alt = '';
+          pick.append(picture);
+          pick.setAttribute('aria-label', `${item.selected ? 'Оставить' : 'Забрать из чемодана'}: ${item.name}`);
+          pick.setAttribute('aria-pressed', String(item.selected));
+          pick.disabled = item.blocked !== null;
+          finds.append(pick);
+        }
+        close.append(finds);
+      }
+    } else close.append(art(scene.image, scene.alt));
     const costs = element('dl', 'garage__facts');
-    addFact(costs, 'Цена лота', rubles(view.purchasePrice));
+    addFact(costs, view.baggage ? 'Цена чемодана' : 'Цена лота', rubles(view.purchasePrice));
     addFact(costs, 'Уже выручено', rubles(view.revenue));
     left.append(close, costs);
     const panel = element('section', 'stage5__stack');
-    panel.append(element('p', 'stage5__capacity', capacityLabel('Машина', view.car)),
-      element('p', 'stage5__capacity', capacityLabel('Гараж дома с учётом груза', view.garage)));
+    if (!view.baggage) panel.append(element('p', 'stage5__capacity', capacityLabel('Машина', view.car)));
+    panel.append(element('p', 'stage5__capacity', capacityLabel('Гараж дома с учётом выбора', view.garage)));
+    if (view.jewelry) panel.append(element('p', 'stage5__capacity', capacityLabel('Шкатулка', view.jewelry)));
     for (const box of view.boxes) {
-      const open = control(`Открыть: ${box.name}`, { type: 'openBox', boxId: box.id }, `box:${box.id}`);
+      const open = control(view.baggage ? 'Открыть чемодан' : box.name === 'Вещи за ширмой' ? 'Заглянуть за ширму' : `Открыть: ${box.name}`, { type: 'openBox', boxId: box.id }, `box:${box.id}`);
       panel.append(open);
     }
     for (const item of view.items) {
       const card = element('article', 'garage__panel stage5__item');
       card.append(element('h2', 'hub__name', item.name), element('p', 'hub__detail', item.clue), itemFacts(item));
-      const move = control(item.selected ? 'Убрать из машины' : 'Забрать домой',
+      const move = control(item.selected ? view.baggage ? 'Оставить в чемодане' : 'Убрать из машины' : view.baggage ? 'В гараж' : 'Забрать домой',
         { type: 'toggleCargo', itemId: item.id }, `cargo:${item.id}`, !item.selected);
       move.setAttribute('aria-label', `${move.textContent}: ${item.name}`);
       move.setAttribute('aria-pressed', String(item.selected));
@@ -115,10 +152,10 @@ export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5
     if (view.boxes.length || view.items.some(({ selected }) => !selected)) {
       const confirm = element('details', 'garage__panel stage5__confirm');
       confirm.append(element('summary', '', 'Оставить остальные вещи'),
-        element('p', 'stage5__copy', 'Оставленные вещи и закрытые коробки останутся в купленном гараже.'),
-        control('Подтвердить и поехать домой', { type: 'finishCargo', leaveRemaining: true }, 'finish', true));
+        element('p', 'stage5__copy', view.baggage ? 'Невыбранные вещи будут оставлены.' : 'Оставленные вещи и закрытые коробки останутся в купленном гараже.'),
+        control(view.baggage ? 'Подтвердить разбор' : 'Подтвердить и поехать домой', { type: 'finishCargo', leaveRemaining: true }, 'finish', true));
       panel.append(confirm);
-    } else panel.append(control('Отвезти груз домой', { type: 'finishCargo', leaveRemaining: false }, 'finish', true));
+    } else panel.append(control(view.baggage ? 'Сохранить вещи в гараже' : 'Отвезти груз домой', { type: 'finishCargo', leaveRemaining: false }, 'finish', true));
     layout.append(left, panel);
     screen.append(layout);
   } else if (view.phase === 'job') {
@@ -170,10 +207,10 @@ function mountRoomContents(screen: HTMLElement, view: RoomView, button: Control,
     if (view.lastSale) records.append(element('p', 'stage5__copy', `Продано: ${view.lastSale.name} · ${rubles(view.lastSale.price)}`));
     for (const deal of view.deals) {
       records.append(element('p', 'hub__detail',
-        `Лот №${deal.lotNumber} · покупка ${rubles(deal.cost)}, выручка ${rubles(deal.revenue)}. Продажа продолжается.`));
+        `${deal.lotNumber === null ? 'Чемодан' : `Лот №${deal.lotNumber}`} · покупка ${rubles(deal.cost)}, ремонт ${rubles(deal.repairCost ?? 0)}, выручка ${rubles(deal.revenue)}. Продажа продолжается.`));
     }
     if (view.lastDeal) {
-      records.append(element('h2', 'garage__heading', `Итог лота №${view.lastDeal.lotNumber}`), receiptFacts(view.lastDeal.receipt, view.bank));
+      records.append(element('h2', 'garage__heading', view.lastDeal.lotNumber === null ? 'Итог по чемодану' : `Итог лота №${view.lastDeal.lotNumber}`), receiptFacts(view.lastDeal.receipt, view.bank, view.lastDeal.repairCost));
     }
     screen.append(records);
   }
@@ -181,6 +218,20 @@ function mountRoomContents(screen: HTMLElement, view: RoomView, button: Control,
 
 function renderGarage(screen: HTMLElement, view: RoomView, button: Control): void {
   screen.append(element('p', 'stage5__capacity', capacityLabel('Гараж', view.garage)));
+  if (view.jewelry) screen.append(element('p', 'stage5__capacity', capacityLabel('Шкатулка', view.jewelry)));
+  if (view.upgrades?.length) {
+    const upgrades = element('div', 'stage5__market');
+    for (const upgrade of view.upgrades) {
+      const details = element('details', 'garage__panel stage5__confirm');
+      const target = upgrade.target === 'garage' ? 'Расширить гараж' : 'Купить вместительную машину';
+      const buy = button(`Подтвердить за ${rubles(upgrade.price)}`, { type: 'buyCapacity', target: upgrade.target }, `upgrade:${upgrade.target}`, true);
+      buy.disabled = !upgrade.available;
+      details.append(element('summary', '', target), element('p', 'hub__detail',
+        `${upgrade.current} → ${upgrade.next} мест · ${rubles(upgrade.price)}`), buy);
+      upgrades.append(details);
+    }
+    screen.append(upgrades);
+  }
   const layout = element('div', 'stage5__layout');
   const left = element('section', 'stage5__stack');
   const scene = element('div', 'stage5__garage-art');
@@ -199,13 +250,22 @@ function renderGarage(screen: HTMLElement, view: RoomView, button: Control): voi
     details.replaceChildren(element('h2', 'garage__heading', item.name), graphic,
       element('p', 'stage5__copy', item.clue), itemFacts(item),
       button('К объявлениям', { type: 'navigate', room: 'market' }, 'market-selected'), discard);
+    if (item.repair) {
+      const quote = item.repair;
+      const workshop = element('details', 'stage5__confirm');
+      const confirm = button(`Подтвердить ремонт за ${rubles(quote.price)}`, { type: 'repairItem', itemId: item.id }, `repair:${item.id}`, true);
+      confirm.disabled = !quote.available;
+      workshop.append(element('summary', '', `Ремонт · ${rubles(quote.price)}`),
+        element('p', 'hub__detail', `Хорошее состояние · ${rubles(quote.estimate.min)}–${rubles(quote.estimate.max)}`), confirm);
+      details.append(workshop);
+    }
   }
 
-  for (const position of ['shelf', 'floor'] as const) {
+  for (const position of ['shelf', 'floor', 'jewelryBox'] as const) {
     const items = view.items.filter((item) => item.position === position);
     if (!items.length) continue;
     const group = element('section', 'garage__panel stage5__slots');
-    const label = position === 'shelf' ? 'На стеллаже' : 'На полу';
+    const label = position === 'shelf' ? 'На стеллаже' : position === 'floor' ? 'На полу' : 'В шкатулке';
     group.append(element('h2', 'hub__name', label));
     const markers = element('div', 'stage5__markers stage5__markers--' + position);
     for (const item of items) {
@@ -219,7 +279,7 @@ function renderGarage(screen: HTMLElement, view: RoomView, button: Control): voi
       group.append(target);
       markers.append(marker);
     }
-    scene.append(markers);
+    if (position !== 'jewelryBox') scene.append(markers);
     list.append(group);
   }
 
@@ -258,6 +318,7 @@ function renderMarket(screen: HTMLElement, view: RoomView, button: Control, send
       });
       form.append(label, publish);
       card.append(form);
+      if (listing) card.append(button('Снять объявление', { type: 'cancelListing', listingId: listing.id }, `cancel:${listing.id}`));
       cards.append(card);
     }
     if (!view.items.length) cards.append(element('p', 'stage5__copy', 'Пока нечего выставить. Привези находку с торгов.'));
@@ -269,10 +330,31 @@ function renderMarket(screen: HTMLElement, view: RoomView, button: Control, send
       const card = element('article', 'garage__panel');
       card.append(element('h2', 'garage__heading', item.name),
         element('p', 'hub__detail', `Запрошено ${rubles(listing.price)}`),
-        element('p', 'stage5__copy', `${offer.buyer} предлагает ${rubles(offer.price)}.`));
+        element('p', 'stage5__copy', offer.delivery ? `${offer.buyer} оформляет доставку за ${rubles(offer.price)}.` : `${offer.buyer} предлагает ${rubles(offer.price)}.`));
       if (offer.unread) card.append(button('Прочитать отклик', { type: 'readOffer', listingId: listing.id, offerId: offer.id }, `read:${offer.id}`));
-      card.append(button(`Продать за ${rubles(offer.price)}`,
+      card.append(button(offer.delivery ? `Отправить за ${rubles(offer.price)}` : `Продать за ${rubles(offer.price)}`,
         { type: 'acceptOffer', listingId: listing.id, offerId: offer.id }, `accept:${offer.id}`, true));
+      if (!offer.delivery && !offer.countered && offer.price < listing.price) {
+        const form = element('form', 'stage5__form');
+        const input = element('input', 'stage5__price');
+        input.type = 'number';
+        input.min = String(offer.price + 1);
+        input.max = String(listing.price);
+        input.step = '1';
+        input.value = String(listing.price);
+        input.required = true;
+        const label = element('label', '', 'Встречная цена, ₽');
+        label.append(input);
+        const submit = element('button', buttonClass, 'Предложить цену');
+        submit.type = 'submit';
+        form.append(label, submit);
+        form.addEventListener('submit', (event) => {
+          event.preventDefault();
+          send({ type: 'counterOffer', listingId: listing.id, offerId: offer.id, price: input.valueAsNumber });
+        });
+        card.append(form);
+      }
+      if (offer.countered) card.append(element('p', 'hub__detail', 'Ответ покупателя на встречную цену.'));
       cards.append(card);
     }
     if (!cards.childElementCount) cards.append(element('p', 'stage5__copy', 'Откликов пока нет.'));

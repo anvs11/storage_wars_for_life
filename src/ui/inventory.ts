@@ -45,13 +45,14 @@ export function saleFacts(view: Pick<SaleView, 'purchasePrice' | 'revenue'>): HT
   return facts;
 }
 
-export function receiptFacts(receipt: SoldReceipt | PassedReceipt, bank: number): HTMLDListElement {
+export function receiptFacts(receipt: SoldReceipt | PassedReceipt, bank: number, repairCost = 0): HTMLDListElement {
   const facts = element('dl', 'garage__facts');
   if (receipt.outcome === 'passed') {
     addFact(facts, 'Списано', rubles(receipt.purchasePrice));
     return facts;
   }
-  addFact(facts, 'Покупка', rubles(receipt.purchasePrice));
+  addFact(facts, 'Покупка', rubles(receipt.purchasePrice - repairCost));
+  if (repairCost) addFact(facts, 'Ремонт', rubles(repairCost));
   addFact(facts, 'Выручка', rubles(receipt.revenue));
   const label = receipt.profit === 0 ? 'Без прибыли и убытка' : receipt.profit < 0 ? 'Убыток' : 'Прибыль';
   addFact(facts, label, (receipt.profit > 0 ? '+' : '') + rubles(receipt.profit));
