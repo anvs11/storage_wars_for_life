@@ -1,5 +1,5 @@
 import type { Stage3Command, Stage3Dispatch, Stage3View } from '../game/stage3-contract';
-import { actionButton, addFact, bankFor, dollars, element, replaceScreen } from './dom';
+import { actionButton, addFact, bankFor, rubles, element, replaceScreen } from './dom';
 import { inventoryFor, receiptFacts, saleFacts } from './inventory';
 
 type BaggageView = Extract<Stage3View, { phase: 'airportOffer' | 'baggageInventory' | 'baggageResult' }>;
@@ -31,13 +31,13 @@ export function mountBaggage(root: HTMLElement, view: BaggageView, dispatch: Sta
   switch (view.phase) {
     case 'airportOffer': {
       const facts = element('dl', 'garage__facts');
-      addFact(facts, 'Цена закрытого чемодана', dollars(view.price));
+      addFact(facts, 'Цена закрытого чемодана', rubles(view.price));
       panel.append(facts);
       if (!view.canAfford) {
         panel.append(element('p', 'garage__prompt', 'В банке недостаточно денег для покупки чемодана.'));
       }
       if (view.canAfford && allowed.has('buyBaggage')) {
-        controls.append(button(`Купить за ${dollars(view.price)}`, { type: 'buyBaggage', expectedRevision: revision },
+        controls.append(button(`Купить за ${rubles(view.price)}`, { type: 'buyBaggage', expectedRevision: revision },
           'buy', primary));
       }
       break;

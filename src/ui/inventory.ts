@@ -1,6 +1,6 @@
 import type { PassedReceipt, SoldReceipt } from '../game/contract';
 import type { Stage2AuctionView, Stage2Command } from '../game/stage2-contract';
-import { addFact, dollars, element } from './dom';
+import { addFact, rubles, element } from './dom';
 
 type SaleView = Extract<Stage2AuctionView, { phase: 'reveal' }>;
 type InventoryView = Pick<SaleView, 'revision' | 'sealedBoxes' | 'revealedFinds' | 'allowedActions'>;
@@ -25,7 +25,7 @@ export function inventoryFor(view: InventoryView, button: InventoryButton): HTML
   for (const find of view.revealedFinds) {
     const card = element('li', 'garage__inventory-item');
     const description = element('div', 'garage__inventory-description');
-    description.append(element('strong', '', find.name), element('span', '', dollars(find.salePrice)));
+    description.append(element('strong', '', find.name), element('span', '', rubles(find.salePrice)));
     card.append(description);
     if (allowedActions.includes('sellItem')) {
       const sell = button('Продать', { type: 'sellItem', itemId: find.id, expectedRevision: revision },
@@ -40,21 +40,21 @@ export function inventoryFor(view: InventoryView, button: InventoryButton): HTML
 
 export function saleFacts(view: Pick<SaleView, 'purchasePrice' | 'revenue'>): HTMLDListElement {
   const facts = element('dl', 'garage__facts');
-  addFact(facts, 'Цена покупки', dollars(view.purchasePrice));
-  addFact(facts, 'Получено от продаж', dollars(view.revenue));
+  addFact(facts, 'Цена покупки', rubles(view.purchasePrice));
+  addFact(facts, 'Получено от продаж', rubles(view.revenue));
   return facts;
 }
 
 export function receiptFacts(receipt: SoldReceipt | PassedReceipt, bank: number): HTMLDListElement {
   const facts = element('dl', 'garage__facts');
   if (receipt.outcome === 'passed') {
-    addFact(facts, 'Списано', dollars(receipt.purchasePrice));
+    addFact(facts, 'Списано', rubles(receipt.purchasePrice));
     return facts;
   }
-  addFact(facts, 'Покупка', dollars(receipt.purchasePrice));
-  addFact(facts, 'Выручка', dollars(receipt.revenue));
+  addFact(facts, 'Покупка', rubles(receipt.purchasePrice));
+  addFact(facts, 'Выручка', rubles(receipt.revenue));
   const label = receipt.profit === 0 ? 'Без прибыли и убытка' : receipt.profit < 0 ? 'Убыток' : 'Прибыль';
-  addFact(facts, label, (receipt.profit > 0 ? '+' : '') + dollars(receipt.profit));
-  addFact(facts, 'Банк', dollars(bank));
+  addFact(facts, label, (receipt.profit > 0 ? '+' : '') + rubles(receipt.profit));
+  addFact(facts, 'Банк', rubles(bank));
   return facts;
 }

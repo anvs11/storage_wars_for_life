@@ -9,13 +9,15 @@ export function element<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-export function dollars(amount: number): string {
-  return amount < 0 ? `−$${Math.abs(amount)}` : `$${amount}`;
+const rubleFormat = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 });
+
+export function rubles(amount: number): string {
+  return `${amount < 0 ? '−' : ''}${rubleFormat.format(Math.abs(amount))} ₽`;
 }
 
 export function bankFor(amount: number): HTMLParagraphElement {
   const bank = element('p', 'garage__bank');
-  bank.append(element('span', '', 'Банк'), element('strong', '', dollars(amount)));
+  bank.append(element('span', '', 'Банк'), element('strong', '', rubles(amount)));
   return bank;
 }
 
