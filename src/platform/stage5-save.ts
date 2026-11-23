@@ -8,7 +8,7 @@ import { decodeStage4, isStage4State } from './stage4-save';
 
 const version = 5;
 
-function isOwned(value: unknown): value is OwnedItem {
+export function isOwned(value: unknown): value is OwnedItem {
   if (!isRecord(value)) return false;
   const { id, name, size, condition, position, clue, estimate, lotNumber, value: price } = value;
   return typeof id === 'string' && typeof name === 'string' && typeof clue === 'string' &&
@@ -29,7 +29,7 @@ function validListing(value: unknown, items: readonly OwnedItem[]) {
     (offer.countered === undefined || typeof offer.countered === 'boolean');
 }
 
-function isStage5State(value: unknown): value is Stage5State {
+export function isStage5State(value: unknown, boxed: readonly OwnedItem[] = []): value is Stage5State {
   if (!isRecord(value) || !exactKeys(value, [
     'base', 'opening', 'room', 'legacyLot', 'items', 'cargo', 'listings', 'deals', 'lastSale', 'lastDeal', 'job', 'jobIncorrect',
     'lotEdition', 'capacityUpgrades', 'baggageArrived',
@@ -45,8 +45,9 @@ function isStage5State(value: unknown): value is Stage5State {
   if (opening !== null && (!prologueFrames.some((frame) => frame === opening) || game.lotNumber !== 0 || room !== null)) return false;
   if (room !== null && (!roomNames.some((name) => name === room) || game.phase !== 'hub' || base.relationshipOpen)) return false;
   if (!Array.isArray(items) || !items.every(isOwned)) return false;
-  if (new Set(items.map(({ id }) => id)).size !== items.length) return false;
-  if (opening !== null && (items.length > 0 || game.bank > 0)) return false;
+  const owned = [...items, ...boxed];
+  if (new Set(owned.map(({ id }) => id)).size !== owned.length) return false;
+  if (opening !== null && (owned.length > 0 || game.bank > 0)) return false;
   if (!Array.isArray(listings) || !listings.every((listing) => validListing(listing, items)) ||
       new Set(listings.map(({ itemId }) => itemId)).size !== listings.length ||
       new Set(listings.map(({ id }) => id)).size !== listings.length) return false;
@@ -56,9 +57,9 @@ function isStage5State(value: unknown): value is Stage5State {
       isMoney(deal.revenue) && (deal.repairCost === undefined || isMoney(deal.repairCost)) &&
       (deal.baggageId === undefined ? isMoney(deal.lotNumber) && deal.lotNumber <= game.lotNumber
         : typeof deal.baggageId === 'string' && deal.lotNumber === null) &&
-      items.some((item) => belongs(item, deal)))) return false;
+      owned.some((item) => belongs(item, deal)))) return false;
   if (new Set(deals.map(({ lotNumber, baggageId }) => baggageId ?? lotNumber)).size !== deals.length ||
-      !items.every((item) => item.lotNumber === null && item.baggageId === undefined || deals.some((deal) => belongs(item, deal)))) return false;
+      !owned.every((item) => item.lotNumber === null && item.baggageId === undefined || deals.some((deal) => belongs(item, deal)))) return false;
   if (lastSale !== null && (!isRecord(lastSale) || typeof lastSale.name !== 'string' || !isMoney(lastSale.price))) return false;
   if (lastDeal !== null) {
     if (!isRecord(lastDeal) ||
@@ -80,7 +81,7 @@ function isStage5State(value: unknown): value is Stage5State {
     storageUsage(stored, true) <= jewelryLimit;
 }
 
-function decode(serialized: string | null): Stage5State | null {
+export function decodeStage5(serialized: string | null): Stage5State | null {
   if (serialized === null) return null;
   try {
     const value: unknown = JSON.parse(serialized);
@@ -104,11 +105,11 @@ function decode(serialized: string | null): Stage5State | null {
 }
 
 export function load(storage: SaveStorage): LoadResult<Stage5State> {
-  return loadSnapshot(storage, decode);
+  return loadSnapshot(storage, decodeStage5);
 }
 
 export function save(storage: SaveStorage, state: Stage5State): SaveResult {
-  return writeSnapshot(storage, { version, state }, decode);
+  return writeSnapshot(storage, { version, state }, decodeStage5);
 }
 
 export function applySavedCommand(storage: SaveStorage, state: Stage5State, command: Stage5Command): SavedCommandResult<Stage5State> {

@@ -1,5 +1,6 @@
 import type { Stage3AuctionView, Stage3Command, Stage3Dispatch } from '../game/stage3-contract';
-import type { Stage5Mount } from '../game/stage5-contract';
+import type { Stage5Dispatch, Stage5View } from '../game/stage5-contract';
+import type { CalendarView } from '../game/stage7-calendar';
 import { mountBaggage } from './baggage';
 import { actionButton, addFact, bankFor, rubles, element } from './dom';
 import { garageScenes } from './garage-scenes';
@@ -7,6 +8,7 @@ import { mountHub } from './hub';
 import { inventoryFor, receiptFacts, saleFacts } from './inventory';
 import { mountRelationship } from './relationship';
 import { mountNewScene } from './stage5';
+import type { FleaControls } from './stage5';
 import './garage.css';
 import './stage3.css';
 
@@ -154,13 +156,13 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
   }
 }
 
-export const mountStage5: Stage5Mount = (root, view, dispatch) => {
+export function mountStage5(root: HTMLElement, view: Stage5View, dispatch: Stage5Dispatch, calendar?: CalendarView, flea?: FleaControls): void {
   switch (view.phase) {
     case 'hub':
-      mountHub(root, view, dispatch, () => dispatch({ type: 'navigate', room: 'home', expectedRevision: view.revision }));
+      mountHub(root, view, dispatch, () => dispatch({ type: 'navigate', room: 'home', expectedRevision: view.revision }), calendar);
       break;
     case 'relationship':
-      mountRelationship(root, view, dispatch);
+      mountRelationship(root, view, dispatch, calendar);
       break;
     case 'airportOffer':
     case 'baggageInventory':
@@ -175,9 +177,9 @@ export const mountStage5: Stage5Mount = (root, view, dispatch) => {
     case 'garage':
     case 'market':
     case 'inbox':
-      mountNewScene(root, view, dispatch);
+      mountNewScene(root, view, dispatch, calendar, flea);
       break;
     default:
       mountAuction(root, view, dispatch);
   }
-};
+}

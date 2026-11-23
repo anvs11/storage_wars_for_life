@@ -1,0 +1,94 @@
+.stage7__calendar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem 1.5rem;
+  flex-wrap: wrap;
+}
+
+.stage7__summary {
+  display: grid;
+  gap: .2rem;
+}
+
+.stage7__summary p {
+  margin: 0;
+}
+
+.stage7__box {
+  display: grid;
+  gap: .65rem;
+}
+
+.stage7__box p {
+  margin: 0;
+}
+
+.stage7__box-items {
+  display: grid;
+  gap: .55rem;
+  margin: 0;
+  padding-inline-start: 1.25rem;
+}
+
+.stage7__box-row > * + * {
+  margin-inline-start: .75rem;
+}
+
+.stage7__sky {
+  position: relative;
+  min-height: clamp(12rem, 38vh, 25rem);
+  overflow: hidden;
+  border-radius: .75rem;
+  background: linear-gradient(#121c34, #303e60 66%, #252c36);
+}
+
+.stage7__sky::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(#485683, #c77e78 68%, #edbb83);
+  animation: stage7-dawn 3s ease-in-out both;
+}
+
+.stage7__moon, .stage7__sun {
+  position: absolute;
+  width: clamp(2.25rem, 6vw, 4rem);
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+
+.stage7__moon {
+  background: #f4ebcc;
+  box-shadow: 0 0 1.75rem #f4ebcc77;
+  animation: stage7-moonset 3s ease-in-out both;
+}
+
+.stage7__sun {
+  left: 19%;
+  bottom: 22%;
+  background: #ffd695;
+  box-shadow: 0 0 3rem #ffd695aa;
+  animation: stage7-sunrise 3s ease-out both;
+}
+
+@keyframes stage7-moonset {
+  0% { left: 11%; top: 47%; opacity: 1; }
+  45% { left: 49%; top: 14%; opacity: 1; }
+  100% { left: 89%; top: 57%; opacity: 0; }
+}
+
+@keyframes stage7-dawn {
+  0%, 50% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes stage7-sunrise {
+  0%, 60% { opacity: 0; transform: translateY(180%); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage7__sky::before, .stage7__sun { animation: none; }
+  .stage7__moon { display: none; }
+}

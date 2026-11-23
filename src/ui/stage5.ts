@@ -1,5 +1,7 @@
 import type { Capacity, GarageItemView, Stage5Command, Stage5Dispatch, Stage5View } from '../game/stage5-contract';
 import { roomNames } from '../game/stage5-contract';
+import type { CalendarView } from '../game/stage7-calendar';
+import type { FleaView, Stage7Dispatch } from '../game/stage7-engine';
 import bar from './assets/stage5-bar.jpg';
 import garage from './assets/stage5-garage.jpg';
 import yard from './assets/stage5-yard.jpg';
@@ -63,7 +65,12 @@ function itemIcon(item: GarageItemView): string {
   return item.position === 'floor' ? '🧳' : '🧰';
 }
 
-export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5Dispatch): void {
+export interface FleaControls {
+  readonly data: FleaView;
+  readonly dispatch: Stage7Dispatch;
+}
+
+export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5Dispatch, calendar?: CalendarView, flea?: FleaControls): void {
   function send(action: Action): void {
     dispatch({ ...action, expectedRevision: view.revision });
   }
@@ -73,6 +80,23 @@ export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5
     button.dataset.screenFocus = key;
     return button;
   }
+
+  function packControl(item: GarageItemView, baggage = false): HTMLElement | null {
+    const entry = flea?.data.packing.find(({ id }) => id === item.id);
+    if (!flea || !entry) return null;
+    const label = entry.selected ? 'Убрать из коробки' : 'На барахолку';
+    const button = actionButton(label, buttonClass, () => flea.dispatch({
+      type: baggage ? 'toggleFleaBaggage' : 'packForFlea', expectedRevision: view.revision, itemId: item.id,
+    }));
+    button.setAttribute('aria-label', `${label}: ${item.name}`);
+    button.disabled = entry.blocked !== null;
+    const row = element('div', 'stage5__stack');
+    row.append(button);
+    if (entry.blocked) row.append(element('p', 'hub__reason', entry.blocked));
+    return row;
+  }
+
+  const packed = (id: string) => flea?.data.packing.some((item) => item.id === id && item.selected) ?? false;
 
   const screen = element('section', 'garage stage5');
   const label = view.phase === 'opening' ? frames[view.frame].title
@@ -119,7 +143,7 @@ export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5
           pick.append(picture);
           pick.setAttribute('aria-label', `${item.selected ? 'Оставить' : 'Забрать из чемодана'}: ${item.name}`);
           pick.setAttribute('aria-pressed', String(item.selected));
-          pick.disabled = item.blocked !== null;
+          pick.disabled = item.blocked !== null || packed(item.id);
           finds.append(pick);
         }
         close.append(finds);
@@ -144,18 +168,24 @@ export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5
         { type: 'toggleCargo', itemId: item.id }, `cargo:${item.id}`, !item.selected);
       move.setAttribute('aria-label', `${move.textContent}: ${item.name}`);
       move.setAttribute('aria-pressed', String(item.selected));
-      move.disabled = item.blocked !== null;
+      move.disabled = item.blocked !== null || packed(item.id);
       card.append(move);
       if (item.blocked) card.append(element('p', 'hub__reason', item.blocked));
+      const pack = view.baggage ? packControl(item, true) : null;
+      if (pack) card.append(pack);
       panel.append(card);
     }
-    if (view.boxes.length || view.items.some(({ selected }) => !selected)) {
+    if (view.boxes.length || view.items.some(({ id, selected }) => !selected && !packed(id))) {
       const confirm = element('details', 'garage__panel stage5__confirm');
       confirm.append(element('summary', '', 'Оставить остальные вещи'),
         element('p', 'stage5__copy', view.baggage ? 'Невыбранные вещи будут оставлены.' : 'Оставленные вещи и закрытые коробки останутся в купленном гараже.'),
         control(view.baggage ? 'Подтвердить разбор' : 'Подтвердить и поехать домой', { type: 'finishCargo', leaveRemaining: true }, 'finish', true));
       panel.append(confirm);
-    } else panel.append(control(view.baggage ? 'Сохранить вещи в гараже' : 'Отвезти груз домой', { type: 'finishCargo', leaveRemaining: false }, 'finish', true));
+    } else {
+      const label = view.items.some(({ id }) => packed(id)) ? 'Сохранить находки'
+        : view.baggage ? 'Сохранить вещи в гараже' : 'Отвезти груз домой';
+      panel.append(control(label, { type: 'finishCargo', leaveRemaining: false }, 'finish', true));
+    }
     layout.append(left, panel);
     screen.append(layout);
   } else if (view.phase === 'job') {
@@ -175,14 +205,15 @@ export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5
     } else panel.append(control('Получить оплату', { type: 'claimJob' }, 'claim', true));
     screen.append(panel);
   } else {
-    mountRoomContents(screen, view, control, send);
+    mountRoomContents(screen, view, control, send, calendar, packControl);
   }
   replaceScreen(root, screen, title);
 }
 
 type Control = (label: string, action: Action, key: string, primary?: boolean) => HTMLButtonElement;
 
-function mountRoomContents(screen: HTMLElement, view: RoomView, button: Control, send: (action: Action) => void): void {
+function mountRoomContents(screen: HTMLElement, view: RoomView, button: Control, send: (action: Action) => void,
+  calendar?: CalendarView, pack?: (item: GarageItemView) => HTMLElement | null): void {
   const navigation = element('nav', 'stage5__nav');
   navigation.setAttribute('aria-label', 'Места');
   for (const room of roomNames) {
@@ -199,8 +230,8 @@ function mountRoomContents(screen: HTMLElement, view: RoomView, button: Control,
     photo.classList.add('stage5__home');
     screen.append(photo);
   }
-  if (view.phase === 'garage') renderGarage(screen, view, button);
-  if (view.phase === 'market' || view.phase === 'inbox') renderMarket(screen, view, button, send);
+  if (view.phase === 'garage') renderGarage(screen, view, button, pack);
+  if (view.phase === 'market' || view.phase === 'inbox') renderMarket(screen, view, button, send, calendar);
 
   if (view.lastSale || view.lastDeal || view.deals.length) {
     const records = element('section', 'garage__panel stage5__records');
@@ -216,7 +247,7 @@ function mountRoomContents(screen: HTMLElement, view: RoomView, button: Control,
   }
 }
 
-function renderGarage(screen: HTMLElement, view: RoomView, button: Control): void {
+function renderGarage(screen: HTMLElement, view: RoomView, button: Control, pack?: (item: GarageItemView) => HTMLElement | null): void {
   screen.append(element('p', 'stage5__capacity', capacityLabel('Гараж', view.garage)));
   if (view.jewelry) screen.append(element('p', 'stage5__capacity', capacityLabel('Шкатулка', view.jewelry)));
   if (view.upgrades?.length) {
@@ -250,6 +281,8 @@ function renderGarage(screen: HTMLElement, view: RoomView, button: Control): voi
     details.replaceChildren(element('h2', 'garage__heading', item.name), graphic,
       element('p', 'stage5__copy', item.clue), itemFacts(item),
       button('К объявлениям', { type: 'navigate', room: 'market' }, 'market-selected'), discard);
+    const packing = pack?.(item);
+    if (packing) details.append(packing);
     if (item.repair) {
       const quote = item.repair;
       const workshop = element('details', 'stage5__confirm');
@@ -290,7 +323,8 @@ function renderGarage(screen: HTMLElement, view: RoomView, button: Control): voi
   screen.append(layout);
 }
 
-function renderMarket(screen: HTMLElement, view: RoomView, button: Control, send: (action: Action) => void): void {
+function renderMarket(screen: HTMLElement, view: RoomView, button: Control, send: (action: Action) => void,
+  calendar?: CalendarView): void {
   const cards = element('div', 'stage5__market');
   if (view.phase === 'market') {
     for (const item of view.items) {
@@ -360,6 +394,9 @@ function renderMarket(screen: HTMLElement, view: RoomView, button: Control, send
     if (!cards.childElementCount) cards.append(element('p', 'stage5__copy', 'Откликов пока нет.'));
   }
 
-  if (view.listings.length) screen.append(button('Подождать покупателя', { type: 'waitForBuyer' }, 'wait', true));
+  if (view.listings.length && calendar?.outing !== null) {
+    const until = calendar ? calendar.period === 'morning' ? ' до дня' : ' до вечера' : '';
+    screen.append(button(`Подождать покупателя${until}`, { type: 'waitForBuyer' }, 'wait', true));
+  }
   screen.append(cards);
 }

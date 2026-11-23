@@ -1,9 +1,8 @@
-import type { Stage5Dispatch } from './game/stage5-contract';
-import { getView, newGame } from './game/stage5-engine';
-import type { Stage5State } from './game/stage5-engine';
+import { getView, newGame } from './game/stage7-engine';
+import type { Stage7Dispatch, Stage7State } from './game/stage7-engine';
 import type { SaveStorage } from './platform/save';
-import { applySavedCommand, load, save } from './platform/stage5-save';
-import { mountStage5 } from './ui/mount';
+import { applySavedCommand, load, save } from './platform/stage7-save';
+import { mountStage7 } from './ui/stage7';
 
 function start(root: HTMLElement): void {
   const storage: SaveStorage = {
@@ -21,7 +20,7 @@ function start(root: HTMLElement): void {
   feedback.append(status, action);
   root.before(feedback);
 
-  let state: Stage5State | undefined;
+  let state: Stage7State | undefined;
 
   function notify(message: string, nextAction?: { label: string; run: () => void }): void {
     status.textContent = message;
@@ -31,21 +30,22 @@ function start(root: HTMLElement): void {
     action.onclick = nextAction?.run ?? null;
   }
 
-  const dispatch: Stage5Dispatch = (command) => {
+  const dispatch: Stage7Dispatch = (command) => {
     if (!state) return;
     const result = applySavedCommand(storage, state, command);
     if (result.kind === 'ignored') return;
     if (result.kind === 'failed') {
-      notify(result.message);
+      notify(result.message, { label: 'Повторить действие', run: () => dispatch(command) });
       return;
     }
-    show(result.state);
+    const visit = result.state.paidVisit?.record;
+    show(result.state, '', visit !== undefined && visit !== state.paidVisit?.record);
   };
 
-  function show(nextState: Stage5State, message = ''): void {
+  function show(nextState: Stage7State, message = '', animateVisit = false): void {
     state = nextState;
     notify(message);
-    mountStage5(root, getView(state), dispatch);
+    mountStage7(root, getView(state), dispatch, animateVisit);
   }
 
   function startNew(): void {

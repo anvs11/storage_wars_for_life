@@ -1,4 +1,6 @@
 import type { Stage4Command, Stage4Dispatch, Stage4HubView } from '../game/stage4-contract';
+import { isVenue } from '../game/stage7-events';
+import type { CalendarView } from '../game/stage7-calendar';
 import { actionButton, bankFor, rubles, element, replaceScreen } from './dom';
 import { relationshipGoalFor } from './relationship';
 
@@ -31,7 +33,7 @@ function offerMessage(offer: HubOffer): string {
   }
 }
 
-export function mountHub(root: HTMLElement, view: HubView, dispatch: Stage4Dispatch, goHome?: () => void): void {
+export function mountHub(root: HTMLElement, view: HubView, dispatch: Stage4Dispatch, goHome?: () => void, calendar?: CalendarView): void {
   const screen = element('section', 'garage hub');
   const header = element('header', 'garage__header');
   const title = element('h1', 'garage__title', 'Между торгами');
@@ -58,7 +60,7 @@ export function mountHub(root: HTMLElement, view: HubView, dispatch: Stage4Dispa
     if (auction.availability === 'fundsLocked' || auction.availability === 'recovery') {
       card.append(element('p', 'hub__reason', `Нужно ${rubles(auction.openingBid)} для ставки`));
     }
-    if (view.allowedActions.includes('enterAuction') &&
+    if (calendar?.outing !== null && view.allowedActions.includes('enterAuction') &&
         (auction.availability === 'ready' || auction.availability === 'recovery')) {
       const recover = auction.availability === 'recovery';
       const control = button(recover ? 'Восстановить банк' : 'К осмотру',
@@ -68,7 +70,10 @@ export function mountHub(root: HTMLElement, view: HubView, dispatch: Stage4Dispa
     }
     auctionList.append(card);
   }
-  auctions.append(element('h2', 'garage__heading', 'Аукционы'), auctionList);
+  auctions.append(element('h2', 'garage__heading', 'Аукционы'));
+  if (calendar) auctions.append(element('p', 'hub__detail', calendar.outing
+    ? `Аукцион займёт ${calendar.outing}.` : 'Следующий аукцион доступен утром.'));
+  auctions.append(auctionList);
 
   const spending = element('section', 'hub__section');
   spending.append(
@@ -90,7 +95,10 @@ export function mountHub(root: HTMLElement, view: HubView, dispatch: Stage4Dispa
       row.append(element('p', 'hub__detail', `${rubles(offer.price)} · +${offer.statusGain} к рейтингу`));
       const reason = offerMessage(offer);
       if (reason) row.append(element('p', 'hub__reason', reason));
-      if (offer.availability === 'ready' && view.allowedActions.includes('spend')) {
+      const visit = calendar && isVenue(offer.id) ? calendar : undefined;
+      if (visit && offer.availability === 'ready') row.append(element('p', 'hub__detail', visit.outing
+        ? `Посещение займёт ${visit.outing}.` : 'Посещение доступно утром.'));
+      if (visit?.outing !== null && offer.availability === 'ready' && view.allowedActions.includes('spend')) {
         const control = button(`Потратить ${rubles(offer.price)}`,
           { type: 'spend', offerId: offer.id, expectedRevision: view.revision }, `offer:${offer.id}`);
         control.setAttribute('aria-label', `${offer.title}: ${control.textContent}`);

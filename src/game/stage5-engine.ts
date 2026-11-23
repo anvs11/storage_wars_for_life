@@ -126,7 +126,7 @@ export const economyFor = (state: Pick<Stage5State, 'legacyLot' | 'lotEdition'>)
   state.legacyLot ? migratedEconomy : state.lotEdition === 5 ? rubleEconomy : stage6Economy;
 const occupied = (items: readonly GarageItemView[]): number => items.reduce((sum, item) => sum + item.size, 0);
 
-function changed(state: Stage5State, patch: Partial<Omit<Stage5State, 'base'>>, bank = state.base.game.bank, status = state.base.game.status): Stage5State {
+export function updateStage5(state: Stage5State, patch: Partial<Omit<Stage5State, 'base'>>, bank = state.base.game.bank, status = state.base.game.status): Stage5State {
   const game = { ...state.base.game, revision: state.base.game.revision + 1, bank, status };
   const base = { ...state.base, game } as Stage4State;
   return { ...state, ...patch, base };
@@ -224,39 +224,53 @@ function settleDeal(state: Stage5State, deal: Deal, items: readonly OwnedItem[])
   };
 }
 
-function handleCargo(state: Stage5State, command: Stage5Command): Stage5State | null {
+function handleCargo(state: Stage5State, command: Stage5Command, boxed: readonly OwnedItem[]): Stage5State | null {
   const game = state.base.game;
   if (game.phase !== 'reveal' && game.phase !== 'baggageInventory') return null;
   if (game.phase === 'baggageInventory' && !state.baggageArrived) {
-    return command.type === 'receiveBaggage' ? changed(state, { baggageArrived: true }) : state;
+    return command.type === 'receiveBaggage' ? updateStage5(state, { baggageArrived: true }) : state;
   }
-  const cargo = cargoFor(state, game);
   if (command.type === 'toggleCargo') {
+    const cargo = cargoFor(state, game);
     const { itemId } = command;
-    if (state.cargo.includes(itemId)) return changed(state, { cargo: state.cargo.filter((id) => id !== itemId) });
+    if (state.cargo.includes(itemId)) return updateStage5(state, { cargo: state.cargo.filter((id) => id !== itemId) });
     const item = cargo.items.find(({ id }) => id === itemId);
-    return item && !cargo.blocked(item) ? changed(state, { cargo: [...state.cargo, itemId] }) : state;
+    return item && !cargo.blocked(item) ? updateStage5(state, { cargo: [...state.cargo, itemId] }) : state;
   }
   if (command.type === 'finishCargo') {
-    const selected = cargo.items.filter(({ id }) => state.cargo.includes(id));
-    const remaining = cargo.boxes.length > 0 || selected.length !== cargo.items.length;
-    if (remaining && !command.leaveRemaining) return state;
-    const baggageId = game.phase === 'baggageInventory' ? `baggage-${game.revision}` : undefined;
-    const items = [...state.items, ...selected.map((item) => ({
-      ...item, id: `owned-${baggageId ?? game.lotNumber}-${item.id}`,
-      ...(baggageId === undefined ? {} : { baggageId }),
-    }))];
-    const next = {
-      ...state, items, cargo: [], legacyLot: false, baggageArrived: false, room: 'garage',
-      base: { ...state.base, relationshipOpen: false, game: hubGame(game) },
-    } as const;
-    const deal = {
-      lotNumber: game.phase === 'reveal' ? game.lotNumber : null, cost: game.purchasePrice,
-      revenue: cargo.revenue, ...(baggageId === undefined ? {} : { baggageId }),
-    };
-    return settleDeal(next, deal, items);
+    return finishCargo(state, command.leaveRemaining, boxed)?.base ?? state;
   }
   return command.type === 'openBox' ? null : state;
+}
+
+export function finishCargo(
+  state: Stage5State, leaveRemaining: boolean, boxed: readonly OwnedItem[], boxSelection: readonly string[] = [],
+): { base: Stage5State; packed: readonly OwnedItem[] } | null {
+  const game = state.base.game;
+  if (game.phase !== 'reveal' && !(game.phase === 'baggageInventory' && state.baggageArrived)) return null;
+  if (game.phase === 'reveal' && boxSelection.length) return null;
+  const cargo = cargoFor(state, game);
+  const selected = cargo.items.filter(({ id }) => state.cargo.includes(id));
+  const pickedForBox = cargo.items.filter(({ id }) => boxSelection.includes(id) && !state.cargo.includes(id));
+  if (pickedForBox.length !== boxSelection.length) return null;
+  const remaining = cargo.boxes.length > 0 || selected.length + pickedForBox.length !== cargo.items.length;
+  if (remaining && !leaveRemaining) return null;
+  const baggageId = game.phase === 'baggageInventory' ? `baggage-${game.revision}` : undefined;
+  const own = (item: OwnedItem): OwnedItem => ({
+    ...item, id: `owned-${baggageId ?? game.lotNumber}-${item.id}`,
+    ...(baggageId === undefined ? {} : { baggageId }),
+  });
+  const items = [...state.items, ...selected.map(own)];
+  const packed = pickedForBox.map(own);
+  const next = {
+    ...state, items, cargo: [], legacyLot: false, baggageArrived: false, room: 'garage',
+    base: { ...state.base, relationshipOpen: false, game: hubGame(game) },
+  } as const;
+  const deal = {
+    lotNumber: game.phase === 'reveal' ? game.lotNumber : null, cost: game.purchasePrice,
+    revenue: cargo.revenue, ...(baggageId === undefined ? {} : { baggageId }),
+  };
+  return { base: settleDeal(next, deal, [...items, ...boxed, ...packed]), packed };
 }
 
 const buyers = ['Ирина', 'Алексей', 'Светлана'] as const;
@@ -274,15 +288,30 @@ function buyerOffer(state: Stage5State, listing: ListingView, item: OwnedItem): 
   };
 }
 
-function handleSale(state: Stage5State, item: OwnedItem, price: number | null): Stage5State {
-  const items = state.items.filter(({ id }) => id !== item.id);
-  const listings = state.listings.filter(({ itemId }) => itemId !== item.id);
-  const lastSale = price === null ? state.lastSale : { name: item.name, price };
-  const bank = state.base.game.bank + (price ?? 0);
+export function waitForOffers(state: Stage5State): Stage5State {
+  return updateStage5(state, {
+    listings: state.listings.map((listing) => buyerOffer(state, listing, state.items.find(({ id }) => id === listing.itemId)!)),
+  });
+}
+
+export function settleSales(state: Stage5State, sales: readonly { item: OwnedItem; price: number | null }[], boxed: readonly OwnedItem[]): Stage5State {
+  const sold = new Set(sales.map(({ item }) => item.id));
+  const items = state.items.filter(({ id }) => !sold.has(id));
+  const listings = state.listings.filter(({ itemId }) => !sold.has(itemId));
+  const last = sales.filter(({ price }) => price !== null).at(-1);
+  const lastSale = last && last.price !== null ? { name: last.item.name, price: last.price } : state.lastSale;
+  const bank = state.base.game.bank + sales.reduce((sum, { price }) => sum + (price ?? 0), 0);
   if (!Number.isSafeInteger(bank)) return state;
-  const next = changed(state, { items, listings, lastSale }, bank);
-  const deal = state.deals.find((entry) => belongsTo(item, entry));
-  return deal ? settleDeal(next, { ...deal, revenue: deal.revenue + (price ?? 0) }, items) : next;
+  let next = updateStage5(state, { items, listings, lastSale }, bank);
+  for (const deal of state.deals) {
+    const relevant = sales.filter(({ item }) => belongsTo(item, deal));
+    if (relevant.length) {
+      const revenue = deal.revenue + relevant.reduce((sum, { price }) => sum + (price ?? 0), 0);
+      if (!Number.isSafeInteger(revenue)) return state;
+      next = settleDeal(next, { ...deal, revenue }, [...items, ...boxed]);
+    }
+  }
+  return next;
 }
 
 function repairItem(state: Stage5State, item: OwnedItem): Stage5State {
@@ -292,21 +321,21 @@ function repairItem(state: Stage5State, item: OwnedItem): Stage5State {
     ...item, condition: 'good' as const, estimate: quote.estimate,
     clue: 'После ремонта проверен, работает.', value: Math.round((quote.estimate.min + quote.estimate.max) / 2),
   };
-  return changed(state, {
+  return updateStage5(state, {
     items: state.items.map((entry) => entry === item ? repaired : entry),
     listings: state.listings.filter(({ itemId }) => itemId !== item.id),
     deals: state.deals.map((deal) => belongsTo(item, deal) ? { ...deal, repairCost: (deal.repairCost ?? 0) + quote.price } : deal),
   }, state.base.game.bank - quote.price);
 }
 
-function handleRoom(state: Stage5State, command: Stage5Command): Stage5State {
+function handleRoom(state: Stage5State, command: Stage5Command, boxed: readonly OwnedItem[]): Stage5State {
   switch (command.type) {
     case 'navigate':
-      return command.room === state.room ? state : changed(state, { room: command.room === 'auctions' ? null : command.room });
+      return command.room === state.room ? state : updateStage5(state, { room: command.room === 'auctions' ? null : command.room });
     case 'buyCapacity': {
       const upgrade = upgrades[command.target];
       if (state.room !== 'garage' || !upgrade || state.capacityUpgrades.includes(command.target) || state.base.game.bank < upgrade.price) return state;
-      return changed(state, { capacityUpgrades: [...state.capacityUpgrades, command.target] }, state.base.game.bank - upgrade.price);
+      return updateStage5(state, { capacityUpgrades: [...state.capacityUpgrades, command.target] }, state.base.game.bank - upgrade.price);
     }
     case 'repairItem': {
       const item = state.items.find(({ id }) => id === command.itemId);
@@ -314,17 +343,17 @@ function handleRoom(state: Stage5State, command: Stage5Command): Stage5State {
     }
     case 'cancelListing': {
       if (state.room !== 'market' || !state.listings.some(({ id }) => id === command.listingId)) return state;
-      return changed(state, { listings: state.listings.filter(({ id }) => id !== command.listingId) });
+      return updateStage5(state, { listings: state.listings.filter(({ id }) => id !== command.listingId) });
     }
     case 'discardItem': {
       const item = state.items.find(({ id }) => id === command.itemId);
-      return state.room === 'garage' && item ? handleSale(state, item, null) : state;
+      return state.room === 'garage' && item ? settleSales(state, [{ item, price: null }], boxed) : state;
     }
     case 'publish': {
       if (state.room !== 'market' || !Number.isSafeInteger(command.price) || command.price <= 0) return state;
       if (!state.items.some(({ id }) => id === command.itemId)) return state;
       const listings = state.listings.filter(({ itemId }) => itemId !== command.itemId);
-      return changed(state, {
+      return updateStage5(state, {
         listings: [...listings, {
           id: `listing-${state.base.game.revision + 1}`, itemId: command.itemId, price: command.price, offer: null,
         }],
@@ -332,9 +361,7 @@ function handleRoom(state: Stage5State, command: Stage5Command): Stage5State {
     }
     case 'waitForBuyer':
       if ((state.room !== 'market' && state.room !== 'inbox') || !state.listings.length) return state;
-      return changed(state, {
-        listings: state.listings.map((listing) => buyerOffer(state, listing, state.items.find(({ id }) => id === listing.itemId)!)),
-      });
+      return waitForOffers(state);
     case 'readOffer':
     case 'counterOffer':
     case 'acceptOffer': {
@@ -343,7 +370,7 @@ function handleRoom(state: Stage5State, command: Stage5Command): Stage5State {
       if (!listing?.offer || listing.offer.id !== command.offerId) return state;
       if (command.type === 'acceptOffer') {
         const item = state.items.find(({ id }) => id === listing.itemId);
-        return item ? handleSale(state, item, listing.offer.price) : state;
+        return item ? settleSales(state, [{ item, price: listing.offer.price }], boxed) : state;
       }
       if (command.type === 'counterOffer') {
         const item = state.items.find(({ id }) => id === listing.itemId);
@@ -354,10 +381,10 @@ function handleRoom(state: Stage5State, command: Stage5Command): Stage5State {
           id: `offer-${listing.id}-${state.base.game.revision + 1}`,
           price: command.price <= item.value ? command.price : listing.offer.price,
         };
-        return changed(state, { listings: state.listings.map((entry) => entry === listing ? { ...entry, offer } : entry) });
+        return updateStage5(state, { listings: state.listings.map((entry) => entry === listing ? { ...entry, offer } : entry) });
       }
       const offer = { ...listing.offer, unread: false };
-      return listing.offer.unread ? changed(state, {
+      return listing.offer.unread ? updateStage5(state, {
         listings: state.listings.map((entry) => entry === listing ? { ...entry, offer } : entry),
       }) : state;
     }
@@ -366,36 +393,36 @@ function handleRoom(state: Stage5State, command: Stage5Command): Stage5State {
   }
 }
 
-export function applyCommand(state: Stage5State, command: Stage5Command): Stage5State {
+export function applyCommand(state: Stage5State, command: Stage5Command, boxed: readonly OwnedItem[] = []): Stage5State {
   const { game } = state.base;
   if (game.revision !== command.expectedRevision) return state;
 
   if (state.opening !== null) {
     if (command.type !== 'skipStory' && command.type !== 'storyNext') return state;
     const opening = prologueFrames[prologueFrames.indexOf(state.opening) + 1];
-    if (opening && command.type === 'storyNext') return changed(state, { opening });
+    if (opening && command.type === 'storyNext') return updateStage5(state, { opening });
     return {
       ...state, opening: null, room: 'garage', items: starter,
       base: { ...state.base, relationshipOpen: false, game: hubGame(game) },
     };
   }
 
-  if (state.room !== null) return handleRoom(state, command);
+  if (state.room !== null) return handleRoom(state, command, boxed);
   if (game.phase === 'hub' && !state.base.relationshipOpen && command.type === 'navigate' && command.room !== 'auctions') {
-    return changed(state, { room: command.room });
+    return updateStage5(state, { room: command.room });
   }
   if (game.phase === 'recovery') {
     if (command.type === 'sortItem' && state.job < jobTasks.length) {
       return command.station === jobTasks[state.job]!.station
-        ? changed(state, { job: state.job + 1, jobIncorrect: false })
-        : changed(state, { jobIncorrect: true });
+        ? updateStage5(state, { job: state.job + 1, jobIncorrect: false })
+        : updateStage5(state, { jobIncorrect: true });
     }
     if (command.type !== 'claimJob' || state.job !== jobTasks.length) return state;
     const base = applyBase(state.base, { type: 'sortGarage', expectedRevision: command.expectedRevision }, rubleEconomy);
     return base === state.base ? state : { ...state, base, job: 0, jobIncorrect: false };
   }
 
-  const shipping = handleCargo(state, command);
+  const shipping = handleCargo(state, command, boxed);
   if (shipping) return shipping;
   switch (command.type) {
     case 'navigate':

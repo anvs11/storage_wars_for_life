@@ -1,0 +1,162 @@
+.stage7__travel-stage, .stage7__visit-backdrop {
+  border-radius: .8rem;
+  background: #283337 url('./assets/stage5-yard.jpg') center / cover no-repeat;
+}
+
+.stage7__travel-stage {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  aspect-ratio: 3 / 2;
+  max-height: 62vh;
+}
+
+.stage7__travel-dusk {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(#1a214f88, #131b36ab 65%, #181b30bd);
+  animation: stage7-trip-dusk var(--trip-duration) linear both;
+}
+
+.stage7__traveler {
+  position: absolute;
+  z-index: 1;
+  bottom: 19%;
+  width: 4%;
+  height: 24%;
+  animation: stage7-traveler var(--trip-duration) linear both;
+}
+
+.stage7__traveler::before, .stage7__traveler::after, .stage7__traveler-legs {
+  content: '';
+  position: absolute;
+  display: block;
+}
+
+.stage7__traveler::before {
+  top: 0;
+  left: 26%;
+  width: 48%;
+  height: 21%;
+  border-radius: 45%;
+  background: #967361;
+}
+
+.stage7__traveler::after {
+  inset: 20% 12% 37%;
+  border-radius: 25% 23% 16% 20%;
+  background: linear-gradient(100deg, #202c35, #40545a);
+}
+
+.stage7__traveler-legs {
+  inset: 56% 18% 0;
+  background: linear-gradient(90deg, #202529 42%, transparent 42% 57%, #2c3136 57%);
+  transform-origin: top;
+  animation: stage7-walk .3s ease-in-out infinite alternate;
+}
+
+.stage7__travel-car {
+  position: absolute;
+  z-index: 2;
+  left: 52%;
+  bottom: 16%;
+  width: 27%;
+  height: 15%;
+  animation: stage7-car var(--trip-duration) ease-in-out both;
+}
+
+.stage7__travel-car::before, .stage7__travel-car::after, .stage7__travel-wheels {
+  content: '';
+  position: absolute;
+  display: block;
+}
+
+.stage7__travel-car::before {
+  inset: 0 16% 36% 15%;
+  border-radius: 45% 44% 0 0;
+  background: linear-gradient(115deg, #647c83 38%, #273d43 39% 43%, #566970 44%);
+}
+
+.stage7__travel-car::after {
+  inset: 40% 0 14%;
+  border-radius: 19% 24% 15% 14%;
+  background: linear-gradient(180deg, #607268 0%, #3b4d46 62%, #293532 100%);
+  box-shadow: .15rem 0 #dac49b, -.15rem 0 #944c48;
+}
+
+.stage7__travel-wheels {
+  inset: 57% 0 0;
+  z-index: 1;
+  background: radial-gradient(circle closest-side at 20% 52%, #58605e 33%, #202424 37% 96%, transparent),
+    radial-gradient(circle closest-side at 81% 52%, #58605e 33%, #202424 37% 96%, transparent);
+}
+
+@keyframes stage7-traveler {
+  0% { left: 22%; opacity: 0; }
+  5% { left: 23%; opacity: 1; }
+  26% { left: 58%; opacity: 1; }
+  30%, 85% { left: 59%; opacity: 0; }
+  88% { left: 58%; opacity: 1; }
+  100% { left: 23%; opacity: 1; }
+}
+
+@keyframes stage7-walk {
+  from { transform: skewX(-9deg); }
+  to { transform: skewX(9deg); }
+}
+
+@keyframes stage7-car {
+  0%, 29% { transform: translateX(0); }
+  50%, 70% { transform: translateX(230%); }
+  86%, 100% { transform: translateX(0); }
+}
+
+@keyframes stage7-trip-dusk {
+  0%, 47% { opacity: 0; }
+  75%, 100% { opacity: 1; }
+}
+
+.stage7__visit-backdrop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(14rem, .72fr);
+  align-items: center;
+  gap: clamp(1.2rem, 4vw, 3.4rem);
+  padding: clamp(1.15rem, 5vw, 4rem);
+  background-image: linear-gradient(#131e30a6, #182331d9), url('./assets/stage5-yard.jpg');
+}
+
+.stage7__visit-photo {
+  width: min(100%, 32rem);
+  justify-self: center;
+  margin: 0;
+  padding: .55rem .55rem .95rem;
+  background: #f2e8d8;
+  box-shadow: 0 .8rem 2rem #17181988;
+  transform: rotate(-3deg);
+}
+
+.stage7__visit-photo img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+}
+
+.stage7__visit-details {
+  display: grid;
+  gap: .8rem;
+  background: var(--surface, #f7f3e9);
+  color: #273230;
+}
+
+.stage7__visit-details p { margin: 0; }
+
+.stage7__visit-details .hub__detail, .stage7__visit-details dt {
+  color: #465753;
+}
+
+@media (max-width: 620px) {
+  .stage7__visit-backdrop { grid-template-columns: minmax(0, 1fr); }
+  .stage7__visit-photo { width: min(92%, 24rem); }
+}

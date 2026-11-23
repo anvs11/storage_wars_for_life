@@ -1,6 +1,9 @@
 import type {
   RelationshipGoal, RelationshipGoalAction, RelationshipStep, RelationshipView, Stage4Dispatch,
 } from '../game/stage4-contract';
+import type { CalendarView } from '../game/stage7-calendar';
+import { relationshipVenue } from '../game/stage7-events';
+import { offers } from '../game/progression';
 import epilogueImage from './assets/relationship-home.jpg';
 import neighborImage from './assets/relationship-neighbor.jpg';
 import { actionButton, bankFor, rubles, element, replaceScreen } from './dom';
@@ -64,7 +67,7 @@ export function relationshipGoalFor(goal: RelationshipGoal, status: number, bank
   return block;
 }
 
-export function mountRelationship(root: HTMLElement, view: RelationshipView, dispatch: Stage4Dispatch): void {
+export function mountRelationship(root: HTMLElement, view: RelationshipView, dispatch: Stage4Dispatch, calendar?: CalendarView): void {
   const scene = scenes[view.step];
   const screen = element('section', 'garage relationship');
   const header = element('header', 'garage__header');
@@ -89,7 +92,12 @@ export function mountRelationship(root: HTMLElement, view: RelationshipView, dis
   const goal = view.nextGoal;
   if (goal) {
     panel.append(relationshipGoalFor(goal, view.status, view.bank));
-    if (goal.canProceed && view.allowedActions.includes(goal.action)) {
+    const venue = relationshipVenue(goal.action);
+    const visit = venue ? calendar : undefined;
+    if (venue) panel.append(element('p', 'hub__detail', `После встречи · +${offers[venue].statusGain} к рейтингу`));
+    if (visit && goal.canProceed) panel.append(element('p', 'hub__detail', visit.outing
+      ? `Встреча займёт ${visit.outing}.` : 'Поехать на встречу можно утром.'));
+    if (visit?.outing !== null && goal.canProceed && view.allowedActions.includes(goal.action)) {
       const price = goal.price === null ? '' : ` за ${rubles(goal.price)}`;
       controls.append(actionButton(actions[goal.action] + price, 'garage__button garage__button--primary',
         () => dispatch({ type: goal.action, expectedRevision: view.revision })));
