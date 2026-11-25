@@ -107,9 +107,10 @@ describe('Stage 5', () => {
     const inspection = run(wrong, { type: 'sortItem', station: 'floor' }, { type: 'sortItem', station: 'shelf' },
       { type: 'sortItem', station: 'recycle' }, { type: 'claimJob' });
     expect(getView(inspection)).toMatchObject({ phase: 'inspection', bank: 2000 });
-    const rival = send(inspection, { type: 'bid' });
-    expect(send(rival, { type: 'bid' })).toBe(rival);
-    expect(getView(send(rival, { type: 'pass' }))).toMatchObject({ phase: 'result', bank: 2000, receipt: { outcome: 'passed' } });
+    expect(getView(send(inspection, { type: 'pass' }))).toMatchObject({ phase: 'result', bank: 2000, receipt: { outcome: 'passed' } });
+    const bought = send(inspection, { type: 'bid' });
+    expect(getView(bought)).toMatchObject({ phase: 'cargo', bank: 0, purchasePrice: 2000 });
+    expect(send(bought, { type: 'bid' })).toBe(bought);
   });
 
   it('повторяет платёж после ошибки записи и отклоняет повтор старой ревизии', () => {

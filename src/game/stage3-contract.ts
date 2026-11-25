@@ -19,7 +19,16 @@ export type Stage3Mount = (root: HTMLElement, view: Stage3View, dispatch: Stage3
 
 export type Stage3Scene = Stage2AuctionView['sceneId'] | 'selected' | 'antiques';
 
-export type Stage3AuctionView = Stage2AuctionView<Stage3Scene> & { readonly tier: AuctionTier };
+export interface AuctionOpponentView {
+  readonly name: string;
+  readonly amount: number | null;
+  readonly state: 'waiting' | 'bid' | 'leading' | 'out';
+}
+
+export type Stage3AuctionView = Stage2AuctionView<Stage3Scene> & {
+  readonly tier: AuctionTier;
+  readonly opponents?: readonly AuctionOpponentView[];
+};
 
 interface HubAuction {
   readonly tier: AuctionTier;

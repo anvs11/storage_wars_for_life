@@ -1,5 +1,16 @@
-export const periods = ['morning', 'afternoon', 'evening', 'night'] as const;
+export const outingPeriods = ['morning', 'afternoon', 'lateAfternoon'] as const;
+export type OutingPeriod = typeof outingPeriods[number];
+export const periods = [...outingPeriods, 'evening', 'night'] as const;
 export type Period = typeof periods[number];
+export const periodNames: Record<Period, string> = {
+  morning: 'утро', afternoon: 'день', lateAfternoon: 'после полудня', evening: 'вечер', night: 'ночь',
+};
+export const waitLabels: Record<OutingPeriod, string> = {
+  morning: 'до дня', afternoon: 'до второй половины дня', lateAfternoon: 'до вечера',
+};
+export const outingNames: Record<OutingPeriod, string> = {
+  morning: 'утренний выезд', afternoon: 'дневной выезд', lateAfternoon: 'последний выезд',
+};
 
 export interface CalendarState {
   readonly day: number;
@@ -11,24 +22,28 @@ type Weekday = typeof weekdays[number];
 
 export interface CalendarView extends CalendarState {
   readonly weekday: Weekday;
-  readonly outing: 'утренний выезд' | 'дневной выезд' | null;
-  readonly remainingOutings: 0 | 1 | 2;
+  readonly outing: string | null;
+  readonly remainingOutings: number;
   readonly nextMarket: { readonly weekday: 'Суббота' | 'Воскресенье'; readonly daysAway: number };
 }
 
-export function outingAvailable(period: Period): boolean {
-  return period === 'morning' || period === 'afternoon';
+export function outingAvailable(period: Period): period is OutingPeriod {
+  return period !== 'evening' && period !== 'night';
+}
+
+export function periodAfterOuting(period: OutingPeriod): Period {
+  return periods[periods.indexOf(period) + 1]!;
 }
 
 export function finishOuting(calendar: CalendarState): CalendarState {
-  return { ...calendar, period: calendar.period === 'morning' ? 'afternoon' : 'evening' };
+  const { period } = calendar;
+  return outingAvailable(period) ? { ...calendar, period: periodAfterOuting(period) } : calendar;
 }
 
 export function getCalendarView(calendar: CalendarState): CalendarView {
   const { day, period } = calendar;
   const weekdayIndex = (day - 1) % weekdays.length;
   const morning = period === 'morning';
-  const afternoon = period === 'afternoon';
   let nextMarket: CalendarView['nextMarket'];
   if (weekdayIndex < 5 || (weekdayIndex === 5 && morning)) {
     nextMarket = { weekday: 'Суббота', daysAway: 5 - weekdayIndex };
@@ -39,7 +54,7 @@ export function getCalendarView(calendar: CalendarState): CalendarView {
   }
   return {
     ...calendar, weekday: weekdays[weekdayIndex]!, nextMarket,
-    outing: morning ? 'утренний выезд' : afternoon ? 'дневной выезд' : null,
-    remainingOutings: morning ? 2 : afternoon ? 1 : 0,
+    outing: outingAvailable(period) ? outingNames[period] : null,
+    remainingOutings: Math.max(0, outingPeriods.length - periods.indexOf(period)),
   };
 }

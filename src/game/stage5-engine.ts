@@ -5,8 +5,9 @@ import type { Stage3HubState } from './stage3-engine';
 import type { Stage4State } from './stage4-engine';
 import { applyCommand as applyBase, getView as baseView, newGame as newBase } from './stage4-engine';
 import { migrateLot, migrateReceipt, migratedEconomy, rubleEconomy, toRubles } from './stage5-economy';
-import type { GarageItemView, ListingView, Room, Stage5Command, Stage5View, SaleView } from './stage5-contract';
-import { stage6Economy } from './stage6-auctions';
+import type { GarageItemView, ListingView, Room, Stage5Command, Stage5View, SaleView, SellerReview } from './stage5-contract';
+import { firstAuctionEconomy, stage6Economy } from './stage6-auctions';
+import { marketOffers, newMarketOffer, reviewFor, updateMarketOffer } from './market-dialogue';
 import { prologueFrames } from './stage5-contract';
 
 export interface OwnedItem extends GarageItemView {
@@ -28,12 +29,13 @@ export interface Stage5State {
   readonly opening: typeof prologueFrames[number] | null;
   readonly room: Room | null;
   readonly legacyLot: boolean;
-  readonly lotEdition: 5 | 6;
+  readonly lotEdition: 5 | 6 | 7;
   readonly capacityUpgrades: readonly ('garage' | 'car')[];
   readonly baggageArrived: boolean;
   readonly items: readonly OwnedItem[];
   readonly cargo: readonly string[];
   readonly listings: readonly ListingView[];
+  readonly reviews?: readonly SellerReview[];
   readonly deals: readonly Deal[];
   readonly lastSale: SaleView | null;
   readonly lastDeal: { readonly lotNumber: number | null; readonly repairCost?: number; readonly receipt: SoldReceipt } | null;
@@ -122,8 +124,12 @@ export const jewelryLimit = 4;
 const upgrades = { garage: { price: 11000, current: garageLimit, next: 16 }, car: { price: 18000, current: carLimit, next: 8 } } as const;
 export const capacityLimit = (owned: readonly string[], target: 'garage' | 'car'): number =>
   owned.includes(target) ? upgrades[target].next : upgrades[target].current;
+export function vehicleFor(owned: readonly string[]) {
+  return { model: owned.includes('car') ? 'van' as const : 'zhiguli' as const, capacity: capacityLimit(owned, 'car') };
+}
 export const economyFor = (state: Pick<Stage5State, 'legacyLot' | 'lotEdition'>) =>
-  state.legacyLot ? migratedEconomy : state.lotEdition === 5 ? rubleEconomy : stage6Economy;
+  state.legacyLot ? migratedEconomy : state.lotEdition === 5 ? rubleEconomy
+    : state.lotEdition === 7 ? firstAuctionEconomy : stage6Economy;
 const occupied = (items: readonly GarageItemView[]): number => items.reduce((sum, item) => sum + item.size, 0);
 
 export function updateStage5(state: Stage5State, patch: Partial<Omit<Stage5State, 'base'>>, bank = state.base.game.bank, status = state.base.game.status): Stage5State {
@@ -273,25 +279,24 @@ export function finishCargo(
   return { base: settleDeal(next, deal, [...items, ...boxed, ...packed]), packed };
 }
 
-const buyers = ['Ирина', 'Алексей', 'Светлана'] as const;
-
-function buyerOffer(state: Stage5State, listing: ListingView, item: OwnedItem): ListingView {
-  const { word } = draw(state.base.game.nextSeed ^ state.base.game.revision);
-  const fairValue = item.lotNumber === null ? item.value : Math.round(item.value * (85 + word % 26) / 100);
-  if (listing.price > item.estimate.max * 1.5 || (item.lotNumber !== null && word % 4 === 0)) return listing;
-  const delivery = (item.lotNumber !== null || item.baggageId !== undefined) && listing.price <= fairValue && word % 10 === 1;
-  return {
-    ...listing, offer: {
-      id: `offer-${listing.id}-${state.base.game.revision + 1}`,
-      buyer: buyers[word % buyers.length]!, price: delivery ? listing.price : Math.min(listing.price, Math.max(1, fairValue)), unread: true, delivery,
-    },
-  };
+export function listingsWithReplies(state: Stage5State): readonly ListingView[] {
+  const { nextSeed, revision } = state.base.game;
+  const occupied = new Set(state.listings.flatMap(listing => marketOffers(listing).map(({ buyer }) => buyer)));
+  return state.listings.map((listing, index) => {
+    const item = state.items.find(({ id }) => id === listing.itemId);
+    if (!item) return listing;
+    const word = draw(nextSeed ^ revision ^ Math.imul(index + 1, 0x9e3779b9)).word;
+    const reply = newMarketOffer(listing, item, word, revision + 1, occupied)
+      ?? newMarketOffer(listing, item, word, revision + 1, new Set());
+    if (!reply) return listing;
+    occupied.add(reply.buyer);
+    return listing.offer ? { ...listing, otherOffers: [...(listing.otherOffers ?? []), reply] }
+      : { ...listing, offer: reply };
+  });
 }
 
 export function waitForOffers(state: Stage5State): Stage5State {
-  return updateStage5(state, {
-    listings: state.listings.map((listing) => buyerOffer(state, listing, state.items.find(({ id }) => id === listing.itemId)!)),
-  });
+  return updateStage5(state, { listings: listingsWithReplies(state) });
 }
 
 export function settleSales(state: Stage5State, sales: readonly { item: OwnedItem; price: number | null }[], boxed: readonly OwnedItem[]): Stage5State {
@@ -334,7 +339,8 @@ function handleRoom(state: Stage5State, command: Stage5Command, boxed: readonly 
       return command.room === state.room ? state : updateStage5(state, { room: command.room === 'auctions' ? null : command.room });
     case 'buyCapacity': {
       const upgrade = upgrades[command.target];
-      if (state.room !== 'garage' || !upgrade || state.capacityUpgrades.includes(command.target) || state.base.game.bank < upgrade.price) return state;
+      const canBuyHere = state.room === 'garage' || (state.room === 'car' && command.target === 'car');
+      if (!canBuyHere || !upgrade || state.capacityUpgrades.includes(command.target) || state.base.game.bank < upgrade.price) return state;
       return updateStage5(state, { capacityUpgrades: [...state.capacityUpgrades, command.target] }, state.base.game.bank - upgrade.price);
     }
     case 'repairItem': {
@@ -353,40 +359,46 @@ function handleRoom(state: Stage5State, command: Stage5Command, boxed: readonly 
       if (state.room !== 'market' || !Number.isSafeInteger(command.price) || command.price <= 0) return state;
       if (!state.items.some(({ id }) => id === command.itemId)) return state;
       const listings = state.listings.filter(({ itemId }) => itemId !== command.itemId);
-      return updateStage5(state, {
-        listings: [...listings, {
-          id: `listing-${state.base.game.revision + 1}`, itemId: command.itemId, price: command.price, offer: null,
-        }],
-      });
+      const draft = {
+        id: `listing-${state.base.game.revision + 1}`, itemId: command.itemId, price: command.price, offer: null,
+      };
+      return updateStage5(state, { listings: listingsWithReplies({ ...state, listings: [...listings, draft] }) });
     }
     case 'waitForBuyer':
       if ((state.room !== 'market' && state.room !== 'inbox') || !state.listings.length) return state;
       return waitForOffers(state);
     case 'readOffer':
     case 'counterOffer':
+    case 'messageBuyer':
     case 'acceptOffer': {
       if (state.room !== 'inbox') return state;
       const listing = state.listings.find(({ id }) => id === command.listingId);
-      if (!listing?.offer || listing.offer.id !== command.offerId) return state;
+      const offer = listing && marketOffers(listing).find(({ id }) => id === command.offerId);
+      const item = listing && state.items.find(({ id }) => id === listing.itemId);
+      if (!listing || !offer || !item) return state;
       if (command.type === 'acceptOffer') {
-        const item = state.items.find(({ id }) => id === listing.itemId);
-        return item ? settleSales(state, [{ item, price: listing.offer.price }], boxed) : state;
+        if (offer.closed) return state;
+        const next = settleSales(state, [{ item, price: offer.price }], boxed);
+        if (next === state) return state;
+        const reviews = state.reviews ?? [];
+        const review = reviewFor(item, offer, state.base.game.nextSeed ^ state.base.game.revision);
+        return { ...next, reviews: [...reviews.slice(-99), review] };
       }
+      let reply: typeof offer | null = { ...offer, unread: false };
       if (command.type === 'counterOffer') {
-        const item = state.items.find(({ id }) => id === listing.itemId);
-        if (!item || listing.offer.delivery || listing.offer.countered || !Number.isSafeInteger(command.price) ||
-          command.price <= listing.offer.price || command.price > listing.price) return state;
-        const offer = {
-          ...listing.offer, countered: true, unread: true,
-          id: `offer-${listing.id}-${state.base.game.revision + 1}`,
-          price: command.price <= item.value ? command.price : listing.offer.price,
-        };
-        return updateStage5(state, { listings: state.listings.map((entry) => entry === listing ? { ...entry, offer } : entry) });
-      }
-      const offer = { ...listing.offer, unread: false };
-      return listing.offer.unread ? updateStage5(state, {
-        listings: state.listings.map((entry) => entry === listing ? { ...entry, offer } : entry),
-      }) : state;
+        if (offer.delivery || !Number.isSafeInteger(command.price) || command.price <= offer.price || command.price > listing.price) return state;
+        reply = updateMarketOffer(offer, `Предлагаю ${command.price} ₽.`, command.price, state.base.game.revision + 1, Math.min(listing.price, item.value));
+      } else if (command.type === 'messageBuyer') {
+        reply = updateMarketOffer(offer, command.text, undefined, state.base.game.revision + 1, Math.min(listing.price, item.value));
+        if (reply) reply = { ...reply, unread: false };
+      } else if (!offer.unread) return state;
+      if (!reply) return state;
+      const updated = reply;
+      return updateStage5(state, { listings: state.listings.map(entry => entry !== listing ? entry : {
+        ...entry,
+        offer: entry.offer === offer ? updated : entry.offer,
+        ...(entry.otherOffers ? { otherOffers: entry.otherOffers.map(other => other === offer ? updated : other) } : {}),
+      }) });
     }
     default:
       return state;
@@ -417,8 +429,12 @@ export function applyCommand(state: Stage5State, command: Stage5Command, boxed: 
         ? updateStage5(state, { job: state.job + 1, jobIncorrect: false })
         : updateStage5(state, { jobIncorrect: true });
     }
+    if (command.type === 'navigate' && command.room === 'home') {
+      return { ...state, base: { ...state.base, game: { ...hubGame(game), lotNumber: game.lotNumber - 1 } },
+        room: 'home', job: 0, jobIncorrect: false };
+    }
     if (command.type !== 'claimJob' || state.job !== jobTasks.length) return state;
-    const base = applyBase(state.base, { type: 'sortGarage', expectedRevision: command.expectedRevision }, rubleEconomy);
+    const base = applyBase(state.base, { type: 'sortGarage', expectedRevision: command.expectedRevision }, economyFor(state));
     return base === state.base ? state : { ...state, base, job: 0, jobIncorrect: false };
   }
 
@@ -441,13 +457,18 @@ export function applyCommand(state: Stage5State, command: Stage5Command, boxed: 
     case 'counterOffer':
     case 'cancelListing':
     case 'receiveBaggage':
+    case 'messageBuyer':
       return state;
   }
-  const base = applyBase(state.base, command, command.type === 'enterAuction' ? stage6Economy : economyFor(state));
+  const edition = command.type === 'enterAuction'
+    ? game.phase === 'hub' && game.lotNumber === 0 && game.bank < 3000 && command.tier === 'ordinary' ? 7 : 6
+    : state.lotEdition;
+  const base = applyBase(state.base, command, command.type === 'enterAuction'
+    ? economyFor({ legacyLot: false, lotEdition: edition }) : economyFor(state));
   if (base === state.base) return state;
   const returned = base.game.phase === 'hub' && !base.relationshipOpen;
   const room = returned && command.type === 'nextLot' ? 'home' : null;
-  return { ...state, base, room, legacyLot: state.legacyLot && !returned, lotEdition: command.type === 'enterAuction' ? 6 : state.lotEdition };
+  return { ...state, base, room, legacyLot: state.legacyLot && !returned, lotEdition: edition };
 }
 
 export function getView(state: Stage5State): Stage5View {
@@ -457,8 +478,11 @@ export function getView(state: Stage5State): Stage5View {
   if (state.room !== null) {
     return {
       phase: state.room, bank, revision, items: state.items.map((item) => itemView(item, bank)), listings: state.listings,
-      unread: state.listings.filter(({ offer }) => offer?.unread).length,
+      unread: state.listings.flatMap(marketOffers).filter(({ unread }) => unread).length,
+      reviews: state.reviews ?? [],
       garage: { used: storageUsage(state.items, false), limit: capacityLimit(state.capacityUpgrades, 'garage') },
+      vehicle: vehicleFor(state.capacityUpgrades),
+      homeImproved: game.assets.includes('home'),
       jewelry: { used: storageUsage(state.items, true), limit: jewelryLimit },
       upgrades: (['garage', 'car'] as const).filter((target) => !state.capacityUpgrades.includes(target))
         .map((target) => ({ target, ...upgrades[target], available: bank >= upgrades[target].price })),

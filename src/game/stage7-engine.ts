@@ -8,9 +8,17 @@ import { familyDateAtWake, pendingFamilyDateOn, scheduleFamilyDate } from './sta
 import type { FamilyDate } from './stage7-family';
 import { advanceRelationship, getRelationshipGoal } from './relationships';
 import type { RelationshipGoal, RelationshipStep } from './stage4-contract';
-import type { GarageItemView, Stage5Command, Stage5View } from './stage5-contract';
-import { applyCommand as applyStage5, economyFor, finishCargo, getView as getStage5View, newGame as newStage5, settleSales, updateStage5, waitForOffers } from './stage5-engine';
+import type { GarageItemView, Stage5Command, Stage5View, VehicleView } from './stage5-contract';
+import { applyCommand as applyStage5, economyFor, finishCargo, getView as getStage5View, listingsWithReplies, newGame as newStage5, settleSales, updateStage5, vehicleFor, waitForOffers } from './stage5-engine';
 import type { Stage5State } from './stage5-engine';
+import type { Stage4State } from './stage4-engine';
+
+type PurchasedGame = Extract<Stage4State['game'], { phase: 'reveal' }>;
+export interface ParkedLot {
+  readonly game: PurchasedGame;
+  readonly lotEdition: Stage5State['lotEdition'];
+  readonly legacyLot: boolean;
+}
 
 export interface Stage7State {
   readonly base: Stage5State;
@@ -18,24 +26,31 @@ export interface Stage7State {
   readonly flea: FleaState;
   readonly paidVisit: VisitPhoto | null;
   readonly familyDate: FamilyDate | null;
+  readonly jobUnlocked?: true;
+  readonly parkedLots?: readonly ParkedLot[];
+  readonly lastAuctionNumber?: number;
 }
 
 type CalendarAction = 'waitUntilNextPeriod' | 'sleep' | 'wakeUp';
 type FleaNavigation = 'openFleaVisit' | 'cancelFleaVisit' | 'confirmFleaVisit' | 'closeFleaReceipt';
 type FleaPacking = 'packForFlea' | 'unpackFlea' | 'toggleFleaBaggage';
 type PhotoAction = 'openVisitPhoto' | 'closeVisitPhoto';
-type SimpleAction = CalendarAction | FleaNavigation | PhotoAction | 'giveBirthdayFlowers';
+type SimpleAction = CalendarAction | FleaNavigation | PhotoAction | 'giveBirthdayFlowers' | 'authorizeJob' | 'parkLot';
 
 export type Stage7Command = Stage5Command | {
   [Action in SimpleAction]: { readonly type: Action; readonly expectedRevision: number };
 }[SimpleAction] | {
   [Action in FleaPacking]: { readonly type: Action; readonly expectedRevision: number; readonly itemId: string };
-}[FleaPacking];
+}[FleaPacking] | { readonly type: 'resumeLot'; readonly expectedRevision: number; readonly lotNumber: number };
 
 export type Stage7Dispatch = (command: Stage7Command) => void;
 
 export interface Stage7View {
   readonly screen: Stage5View;
+  readonly jobUnlocked: boolean;
+  readonly parkedLots: readonly { lotNumber: number; purchasePrice: number }[];
+  readonly canParkLot: boolean;
+  readonly vehicle: VehicleView;
   readonly calendar: CalendarView;
   readonly flea: FleaView;
   readonly paidVisit: VisitPhoto | null;
@@ -137,6 +152,11 @@ export function applyCommand(state: Stage7State, command: Stage7Command): Stage7
   const { base, calendar, flea, paidVisit, familyDate } = state;
   const profile = base.base;
   if (profile.game.revision !== command.expectedRevision) return state;
+  if (command.type === 'authorizeJob') {
+    return profile.game.phase === 'recovery' && !state.jobUnlocked
+      ? { ...state, jobUnlocked: true, base: updateStage5(base, {}) } : state;
+  }
+  if ((command.type === 'sortItem' || command.type === 'claimJob') && !state.jobUnlocked) return state;
 
   if (paidVisit?.open) {
     if (command.type !== 'closeVisitPhoto') return state;
@@ -171,6 +191,30 @@ export function applyCommand(state: Stage7State, command: Stage7Command): Stage7
   }
 
   if (calendar.period === 'night') return state;
+  const parkedLots = state.parkedLots ?? [];
+  if (command.type === 'parkLot') {
+    const game = profile.game;
+    if (game.phase !== 'reveal' || base.cargo.length || !outingAvailable(calendar.period) ||
+      state.lastAuctionNumber !== undefined) return state;
+    const { bank, revision, status, lotNumber, assets, nextSeed, offerSeeds } = game;
+    return {
+      ...state, calendar: finishOuting(calendar),
+      parkedLots: [...parkedLots, { game, lotEdition: base.lotEdition, legacyLot: base.legacyLot }],
+      base: { ...base, room: null, legacyLot: false, listings: listingsWithReplies(base), base: { ...profile, game: {
+        phase: 'hub', bank, revision: revision + 1, status, lotNumber, assets, nextSeed, offerSeeds,
+      } } },
+    };
+  }
+  if (command.type === 'resumeLot') {
+    const game = profile.game;
+    const parked = parkedLots.find(entry => entry.game.lotNumber === command.lotNumber);
+    if (!parked || game.phase !== 'hub' || profile.relationshipOpen) return state;
+    const { bank, revision, status, lotNumber, assets, offerSeeds, nextSeed } = game;
+    return { ...state, lastAuctionNumber: lotNumber, parkedLots: parkedLots.filter(entry => entry !== parked),
+      base: { ...base, room: null, lotEdition: parked.lotEdition, legacyLot: parked.legacyLot, base: {
+        ...profile, game: { ...parked.game, bank, revision: revision + 1, status, assets, offerSeeds, nextSeed },
+      } } };
+  }
   switch (command.type) {
     case 'giveBirthdayFlowers':
       return giveBirthdayFlowers(state);
@@ -215,7 +259,7 @@ export function applyCommand(state: Stage7State, command: Stage7Command): Stage7
   const next = applyStage5(source, command, flea.items);
   if (next === source) return state;
 
-  if (visit && (calendar.period === 'morning' || calendar.period === 'afternoon')) {
+  if (visit && outingAvailable(calendar.period)) {
     const game = next.base.game;
     return {
       ...state, base: next, calendar: finishOuting(calendar),
@@ -226,10 +270,19 @@ export function applyCommand(state: Stage7State, command: Stage7Command): Stage7
     };
   }
 
+  if (command.type === 'finishCargo' && state.lastAuctionNumber !== undefined && next.base.game.phase === 'hub') {
+    const { lastAuctionNumber, ...rest } = state;
+    return { ...rest, base: { ...next, base: { ...next.base, game: { ...next.base.game, lotNumber: lastAuctionNumber } } } };
+  }
   const auctionFinished = (command.type === 'nextLot' && profile.game.phase === 'result') ||
     (command.type === 'finishCargo' && profile.game.phase === 'reveal');
+  const nextWithReplies = auctionFinished ? { ...next, listings: listingsWithReplies(next) } : next;
+  if (state.jobUnlocked && next.base.game.phase !== 'recovery') {
+    const { jobUnlocked: _unused, ...rest } = state;
+    return { ...rest, base: nextWithReplies };
+  }
   return {
-    ...state, base: next, calendar: waits || auctionFinished ? finishOuting(calendar) : calendar,
+    ...state, base: nextWithReplies, calendar: waits || auctionFinished ? finishOuting(calendar) : calendar,
     familyDate: command.type === 'meetNeighbor' ? scheduleFamilyDate(calendar.day) : familyDate,
   };
 }
@@ -241,7 +294,11 @@ export function getView(state: Stage7State): Stage7View {
   const { game, relationshipStep: step } = base.base;
   const economy = economyFor(base);
   return {
-    screen: getStage5View(base), calendar: getCalendarView(calendar), paidVisit: state.paidVisit,
+    screen: getStage5View(base), vehicle: vehicleFor(base.capacityUpgrades), jobUnlocked: state.jobUnlocked === true,
+    parkedLots: (state.parkedLots ?? []).map(({ game }) => ({ lotNumber: game.lotNumber, purchasePrice: game.purchasePrice })),
+    canParkLot: base.base.game.phase === 'reveal' && !base.cargo.length && state.lastAuctionNumber === undefined
+      && outingAvailable(calendar.period),
+    calendar: getCalendarView(calendar), paidVisit: state.paidVisit,
     familyDate: familyDate && {
       ...familyDate, affection: familyDate.outcome === 'celebrated' ? 1 : familyDate.outcome === 'missed' ? -1 : 0,
       price: economy.flowerPrice, advancesStory: step === 'met', step, status: game.status,

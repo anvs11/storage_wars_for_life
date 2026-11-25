@@ -4,7 +4,7 @@ import type { Stage4Command, Stage4View } from './stage4-contract';
 
 export const prologueFrames = ['eviction', 'rain', 'call', 'keys'] as const;
 export const jobStations = ['shelf', 'floor', 'recycle'] as const;
-export const roomNames = ['home', 'garage', 'market', 'inbox'] as const;
+export const roomNames = ['home', 'garage', 'market', 'inbox', 'car'] as const;
 
 export type Room = typeof roomNames[number];
 export type JobStation = typeof jobStations[number];
@@ -18,6 +18,7 @@ export type Stage5Command = Stage4Command | { readonly expectedRevision: number 
   | { readonly type: 'buyCapacity'; readonly target: 'garage' | 'car' }
   | { readonly type: 'repairItem'; readonly itemId: ItemId }
   | { readonly type: 'counterOffer'; readonly listingId: string; readonly offerId: string; readonly price: number }
+  | { readonly type: 'messageBuyer'; readonly listingId: string; readonly offerId: string; readonly text: string }
   | { readonly type: 'cancelListing'; readonly listingId: string }
   | { readonly type: 'receiveBaggage' }
   | { readonly type: 'waitForBuyer' | 'claimJob' }
@@ -46,6 +47,9 @@ export interface MarketOffer {
   readonly unread: boolean;
   readonly delivery?: boolean;
   readonly countered?: boolean;
+  readonly ceiling?: number;
+  readonly closed?: boolean;
+  readonly messages?: readonly { readonly side: 'player' | 'buyer'; readonly text: string }[];
 }
 
 export interface ListingView {
@@ -53,6 +57,14 @@ export interface ListingView {
   readonly itemId: ItemId;
   readonly price: number;
   readonly offer: MarketOffer | null;
+  readonly otherOffers?: readonly MarketOffer[];
+}
+
+export interface SellerReview {
+  readonly buyer: string;
+  readonly item: string;
+  readonly stars: 1 | 2 | 3 | 4 | 5;
+  readonly text: string;
 }
 
 export interface SaleView {
@@ -65,13 +77,21 @@ type RoomView = Shared & {
   readonly items: readonly GarageItemView[];
   readonly listings: readonly ListingView[];
   readonly unread: number;
+  readonly reviews?: readonly SellerReview[];
   readonly garage: Capacity;
+  readonly vehicle?: VehicleView;
+  readonly homeImproved?: boolean;
   readonly jewelry?: Capacity;
   readonly upgrades?: readonly { readonly target: 'garage' | 'car'; readonly price: number; readonly current: number; readonly next: number; readonly available: boolean }[];
   readonly lastSale: SaleView | null;
   readonly lastDeal: { readonly lotNumber: number | null; readonly repairCost?: number; readonly receipt: PassedReceipt | SoldReceipt } | null;
   readonly deals: readonly { readonly lotNumber: number | null; readonly cost: number; readonly revenue: number; readonly repairCost?: number }[];
 } & { [Name in Room]: { readonly phase: Name } }[Room];
+
+export interface VehicleView {
+  readonly model: 'zhiguli' | 'van';
+  readonly capacity: number;
+}
 
 export type Stage5View = Exclude<Stage4View, { phase: 'prologue' | 'reveal' | 'recovery' }> | RoomView
   | (Shared & { readonly phase: 'opening'; readonly frame: typeof prologueFrames[number] })

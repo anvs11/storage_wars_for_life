@@ -92,3 +92,12 @@
   .stage7__sky::before, .stage7__sun { animation: none; }
   .stage7__moon { display: none; }
 }
+.stage7__rest {
+  margin-bottom: 12px;
+  border-color: #9f7945;
+  background: #302a20;
+}
+
+.stage7__rest h2, .stage7__rest p { margin: 0; }
+.stage7__rest h2 { font-size: 1.1rem; color: var(--amber); }
+.stage7__rest button { justify-self: start; }

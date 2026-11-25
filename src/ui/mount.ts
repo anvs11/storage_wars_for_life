@@ -1,8 +1,10 @@
 import type { Stage3AuctionView, Stage3Command, Stage3Dispatch } from '../game/stage3-contract';
 import type { Stage5Dispatch, Stage5View } from '../game/stage5-contract';
 import type { CalendarView } from '../game/stage7-calendar';
+import { auctionCast } from './auction-bidders';
 import { mountBaggage } from './baggage';
 import { actionButton, addFact, bankFor, rubles, element } from './dom';
+import { placeProp, sceneSprite, stackedBoxes } from './scene-sprites';
 import { garageScenes } from './garage-scenes';
 import { mountHub } from './hub';
 import { inventoryFor, receiptFacts, saleFacts } from './inventory';
@@ -19,8 +21,7 @@ function factsFor(view: Stage3AuctionView): HTMLDListElement {
       addFact(facts, 'Стартовая ставка', rubles(view.nextBidAmount));
       break;
     case 'bidding':
-      addFact(facts, 'Ваша ставка', rubles(view.lastPlayerBid));
-      addFact(facts, view.leaderName, rubles(view.currentPrice));
+      addFact(facts, 'Следующая ставка', rubles(view.nextBidAmount));
       break;
     case 'reveal':
       return saleFacts(view);
@@ -34,10 +35,31 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
   const previousFocus = root.contains(document.activeElement) ? document.activeElement : null;
   const focusKey = previousFocus?.getAttribute('data-garage-focus');
   const allowed = new Set(view.allowedActions);
+  const previousScreen = root.firstElementChild as HTMLElement | null;
+  const playRound = view.phase === 'bidding'
+    && previousScreen?.dataset.auctionLot === String(view.lotNumber)
+    && previousScreen.dataset.playerBid !== String(view.lastPlayerBid)
+    && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let waitingForBidders = playRound;
+
+  function flashEstimate(item: HTMLElement, estimate: { min: number; max: number }): void {
+    item.querySelector('.auction-estimate-float')?.remove();
+    const bubble = element('span', 'auction-estimate-float', estimate.min === estimate.max
+      ? `Примерно ${rubles(estimate.max)}`
+      : `${rubles(estimate.min)}–${rubles(estimate.max)}`);
+    bubble.setAttribute('aria-hidden', 'true');
+    item.append(bubble);
+    window.setTimeout(() => bubble.remove(), 1100);
+  }
+
   const buttons = new Map<string, HTMLButtonElement>();
 
   function button(label: string, command: Stage3Command, key: string, className: string): HTMLButtonElement {
-    const control = actionButton(label, className, () => dispatch(command));
+    const control = actionButton(label, className, () => {
+      if ((command.type === 'bid' || command.type === 'inspect') && waitingForBidders) return;
+      if (command.type === 'inspect') control.focus({ preventScroll: true });
+      dispatch(command);
+    });
     control.dataset.garageFocus = key;
     buttons.set(key, control);
     return control;
@@ -63,8 +85,18 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
   const hints = element('div', 'garage__hints');
   const inspected = new Map<string, HTMLElement>();
   const auctionOpen = view.phase === 'inspection' || view.phase === 'bidding';
-
   if (auctionOpen) {
+    layout.classList.add('auction-layout');
+    screen.dataset.auctionLot = String(view.lotNumber);
+    if (view.phase === 'bidding') screen.dataset.playerBid = String(view.lastPlayerBid);
+  }
+
+  if (auctionOpen) scene.classList.add('door-scene', 'door-scene--' + view.sceneId);
+  if (auctionOpen) {
+    let findIndex = 0;
+    let boxIndex = 0;
+    const currentHint = view.visibleItems.find(item => item.hint && `inspect:${item.id}` === focusKey)
+      ?? view.visibleItems.filter(({ hint }) => hint).at(-1);
     for (const item of view.visibleItems) {
       const row = element('li', 'garage__item');
       const key = `inspect:${item.id}`;
@@ -76,18 +108,48 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
           'garage__button garage__button--inspect',
         );
         inspectButton.setAttribute('aria-label', `Осмотреть предмет: ${item.name}`);
+        inspectButton.dataset.inspectionPending = 'true';
         row.append(inspectButton);
+      } else if (item.hint) {
+        const review = actionButton(item.name, 'garage__button garage__button--inspect', () => {
+          for (const [id, hint] of inspected) hint.hidden = id !== key;
+          inspected.get(key)?.focus({ preventScroll: true });
+          const estimate = item.hint?.estimatedSalePrice;
+          if (estimate) flashEstimate(row, estimate);
+        });
+        review.setAttribute('aria-label', `Оценка предмета: ${item.name}`);
+        review.dataset.garageFocus = key;
+        buttons.set(key, review);
+        row.append(review);
       } else {
         row.textContent = item.name;
       }
+      const target = row.querySelector('button') ?? row;
+      const container = !item.canInspect && !item.hint;
+      const behindScreen = item.name === 'Вещи за ширмой';
+      const sprite = view.sceneId === 'workshop' && container && !behindScreen
+        ? stackedBoxes() : sceneSprite(item.name);
+      const label = element('span', 'door-label', item.name);
+      row.classList.toggle('door-prop', sprite !== null);
+      target.replaceChildren(label);
+      if (sprite) {
+        target.prepend(sprite);
+        if (behindScreen) target.prepend(stackedBoxes());
+      }
+      if (!container) target.append(element('span', 'door-loupe'));
+      placeProp(row, item.name, container ? boxIndex++ : findIndex++, container);
       items.append(row);
 
       if (item.hint) {
         const hint = element('p', 'garage__hint');
+        hint.hidden = item !== currentHint;
+        hint.dataset.garageFocus = key;
         hint.tabIndex = -1;
-        hint.append(element('strong', '', item.name), document.createTextNode(` ${item.hint.text}`));
+        hint.append(element('strong', '', item.name));
+        if (view.sceneId === 'tutorial' && item.name === 'Велосипед') hint.append(' На раме видны потёртости.');
         const estimate = item.hint.estimatedSalePrice;
         if (estimate) {
+          if (focusKey === key && previousFocus?.getAttribute('data-inspection-pending') === 'true') flashEstimate(row, estimate);
           hint.append(element('span', 'garage__estimate', `Оценка предмета: ${rubles(estimate.min)}–${rubles(estimate.max)}`));
         }
         hints.append(hint);
@@ -98,11 +160,11 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
       hints.append(element('p', 'garage__prompt', 'Выберите предмет, чтобы осмотреть его.'));
     }
   }
-  scene.append(photo);
-  if (auctionOpen && view.visibleItems.some(({ name }) => name === 'Вещи за ширмой')) {
-    scene.append(element('p', 'garage__prompt stage6__concealed', 'Ширма закрывает часть лота.'));
-  }
-  if (auctionOpen) scene.append(items, hints);
+  const stage = element('div', 'door-picture');
+  stage.append(photo);
+  if (auctionOpen) stage.append(items);
+  scene.append(stage);
+  if (auctionOpen) scene.append(hints);
 
   const panel = element('section', 'garage__panel');
   const headingText = {
@@ -135,7 +197,10 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
     controls.append(button('К выбору торгов', { type: 'nextLot', expectedRevision: view.revision }, 'nextLot', 'garage__button garage__button--primary'));
   }
 
-  panel.append(heading, factsFor(view));
+  const cast = view.phase === 'inspection' || view.phase === 'bidding' ? auctionCast(view) : null;
+  panel.append(heading);
+  if (cast) panel.append(cast.prompt);
+  else panel.append(factsFor(view));
   if (view.phase === 'reveal') {
     panel.append(inventoryFor(view, button));
   }
@@ -143,16 +208,31 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
     panel.append(element('p', 'garage__prompt', `Следующая ставка ${rubles(view.nextBidAmount)} недоступна.`));
   }
   panel.append(controls);
+  if (cast) layout.append(cast.sidebar);
   layout.append(scene, panel);
   screen.append(header, layout);
   root.replaceChildren(screen);
+
+  if (cast && playRound) {
+    const bid = buttons.get('bid');
+    const bidLabel = bid?.textContent;
+    if (bid) bid.textContent = 'Соперники отвечают';
+    const pending = Array.from(buttons.values()).filter(control => control === bid || control.dataset.inspectionPending === 'true');
+    for (const control of pending) control.setAttribute('aria-disabled', 'true');
+    cast.play(() => {
+      waitingForBidders = false;
+      if (bid && bidLabel) bid.textContent = bidLabel;
+      for (const control of pending) control.removeAttribute('aria-disabled');
+    });
+  }
+
 
   if (view.phase === 'inspection' &&
     ((previousFocus && !focusKey) || focusKey === 'nextLot' || focusKey === 'sortGarage' || focusKey === 'title')) {
     title.focus();
   } else if (previousFocus) {
-    const target = focusKey && focusKey !== 'bid' ? inspected.get(focusKey) ?? buttons.get(focusKey) : null;
-    (target || heading).focus();
+    const target = focusKey ? inspected.get(focusKey) ?? buttons.get(focusKey) : null;
+    (target || heading).focus({ preventScroll: focusKey === 'bid' || focusKey?.startsWith('inspect:') === true });
   }
 }
 
@@ -175,9 +255,10 @@ export function mountStage5(root: HTMLElement, view: Stage5View, dispatch: Stage
     case 'job':
     case 'home':
     case 'garage':
+    case 'car':
     case 'market':
     case 'inbox':
-      mountNewScene(root, view, dispatch, calendar, flea);
+      mountNewScene(root, view, dispatch, flea);
       break;
     default:
       mountAuction(root, view, dispatch);

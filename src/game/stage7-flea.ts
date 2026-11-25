@@ -3,7 +3,7 @@ import { capacityLimit, jewelryLimit, openCargoItems, storageUsage } from './sta
 import type { OwnedItem, Stage5State } from './stage5-engine';
 import type { CalendarState } from './stage7-calendar';
 
-export const fleaCapacity = 4;
+export const fleaCapacity = 15;
 const saleRate = { min: 70, max: 95 } as const;
 
 export interface FleaSale {
@@ -70,7 +70,7 @@ export function sellAtFlea(flea: FleaState) {
   for (const item of flea.items) {
     const roll = draw(seed);
     seed = roll.seed;
-    if (roll.value >= 0.65 || item.value === 0) {
+    if (roll.value >= 0.8 || item.value === 0) {
       remaining.push(item);
     } else {
       const rate = saleRate.min + roll.word % (saleRate.max - saleRate.min + 1);

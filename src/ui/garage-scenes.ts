@@ -1,4 +1,4 @@
-import tutorial from './assets/tutorial-garage.png';
+import tutorial from './assets/tutorial-garage-empty.jpg';
 import workshop from './assets/garage-workshop.jpg';
 import household from './assets/garage-household.jpg';
 import selected from './assets/garage-selected.jpg';
@@ -8,7 +8,7 @@ export const garageScenes = {
   tutorial: {
     title: 'Учебный гараж',
     image: tutorial,
-    alt: 'Поднятые металлические ворота. Слева велосипед с потёртой рамой, справа заклеенная коробка.',
+    alt: 'Открытые металлические ворота, косой свет на полу гаража.',
   },
   workshop: {
     title: 'Гараж-мастерская',

@@ -138,6 +138,29 @@ function pairedLot(hiddenPrice: number): Stage3State {
 }
 
 describe('аукционная экономика', () => {
+  it('показывает состав соперников и реальные ставки раунда без их пределов', () => {
+    const initial = pairedLot(35);
+    if (initial.phase !== 'inspection') throw new Error('Нужен открытый лот');
+    const state = { ...initial, lot: { ...initial.lot, opponents: [
+      { id: 'a', name: 'Марина', limit: 35 },
+      { id: 'b', name: 'Олег', limit: 50 },
+      { id: 'c', name: 'Виктория', limit: 25 },
+    ] }, activeOpponentIds: ['a', 'b', 'c'] };
+    expect(getView(state)).toMatchObject({ opponents: [
+      { name: 'Марина', amount: null, state: 'waiting' },
+      { name: 'Олег', amount: null, state: 'waiting' },
+      { name: 'Виктория', amount: null, state: 'waiting' },
+    ] });
+    const bidding = getView(accepted(state, { type: 'bid' }));
+    if (bidding.phase !== 'bidding') throw new Error('Нужен ответ соперников');
+    expect(bidding.opponents).toEqual([
+      { name: 'Марина', amount: 30, state: 'bid' },
+      { name: 'Олег', amount: 35, state: 'leading' },
+      { name: 'Виктория', amount: null, state: 'out' },
+    ]);
+    expect(bidding.currentPrice).toBe(35);
+  });
+
   it('при одинаковых уликах и случайности держит одну историю ставок для коробок за $4 и $35', () => {
     let cheap = inspectAll(pairedLot(4));
     let expensive = inspectAll(pairedLot(35));

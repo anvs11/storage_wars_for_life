@@ -62,34 +62,9 @@
   left: 52%;
   bottom: 16%;
   width: 27%;
-  height: 15%;
+  height: auto;
+  filter: drop-shadow(0 5px 4px #171614);
   animation: stage7-car var(--trip-duration) ease-in-out both;
-}
-
-.stage7__travel-car::before, .stage7__travel-car::after, .stage7__travel-wheels {
-  content: '';
-  position: absolute;
-  display: block;
-}
-
-.stage7__travel-car::before {
-  inset: 0 16% 36% 15%;
-  border-radius: 45% 44% 0 0;
-  background: linear-gradient(115deg, #647c83 38%, #273d43 39% 43%, #566970 44%);
-}
-
-.stage7__travel-car::after {
-  inset: 40% 0 14%;
-  border-radius: 19% 24% 15% 14%;
-  background: linear-gradient(180deg, #607268 0%, #3b4d46 62%, #293532 100%);
-  box-shadow: .15rem 0 #dac49b, -.15rem 0 #944c48;
-}
-
-.stage7__travel-wheels {
-  inset: 57% 0 0;
-  z-index: 1;
-  background: radial-gradient(circle closest-side at 20% 52%, #58605e 33%, #202424 37% 96%, transparent),
-    radial-gradient(circle closest-side at 81% 52%, #58605e 33%, #202424 37% 96%, transparent);
 }
 
 @keyframes stage7-traveler {
@@ -107,8 +82,9 @@
 }
 
 @keyframes stage7-car {
-  0%, 29% { transform: translateX(0); }
-  50%, 70% { transform: translateX(230%); }
+  0%, 29% { transform: translateX(0) scaleX(-1); }
+  50% { transform: translateX(230%) scaleX(-1); }
+  70% { transform: translateX(230%); }
   86%, 100% { transform: translateX(0); }
 }
 

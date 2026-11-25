@@ -41,3 +41,13 @@ export function generateStage6Lot(tier: AuctionTier, seed: number, lotNumber: nu
 }
 
 export const stage6Economy = { ...rubleEconomy, lot: generateStage6Lot };
+
+export const firstAuctionEconomy = {
+  ...stage6Economy,
+  lot: (...args: Parameters<typeof generateStage6Lot>) => {
+    const lot = generateStage6Lot(...args);
+    return lot.sceneId === 'tutorial'
+      ? { ...lot, opponents: lot.opponents.map(opponent => ({ ...opponent, limit: lot.openingBid })) }
+      : lot;
+  },
+};

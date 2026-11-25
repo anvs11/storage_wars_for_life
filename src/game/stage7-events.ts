@@ -1,6 +1,7 @@
 import { offers } from './progression';
 import type { OfferId } from './stage3-contract';
 import type { Stage5Command } from './stage5-contract';
+import type { OutingPeriod } from './stage7-calendar';
 
 export type VisitVenue = Exclude<OfferId, 'home' | 'car'>;
 
@@ -8,7 +9,7 @@ export interface VisitRecord {
   readonly venue: VisitVenue;
   readonly together: boolean;
   readonly day: number;
-  readonly outing: 'morning' | 'afternoon';
+  readonly outing: OutingPeriod;
   readonly spent: number;
   readonly statusGain: number;
   readonly revision: number;

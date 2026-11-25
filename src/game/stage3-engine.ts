@@ -9,7 +9,7 @@ import { draw, freshSeed } from './random';
 import { advanceAuctionPrice, generateLot, openingBidFor } from './repeat-auctions';
 import { applyGarageCommand, applyStoryCommand, enterLot, getView as getGarageView, initialPrologue } from './stage2-engine';
 import type { GarageState, Stage2State } from './stage2-engine';
-import type { AuctionTier, OfferId, Stage3Command, Stage3Scene, Stage3View } from './stage3-contract';
+import type { AuctionOpponentView, AuctionTier, OfferId, Stage3Command, Stage3Scene, Stage3View } from './stage3-contract';
 
 export interface GameEconomy {
   readonly openingBid: (tier: AuctionTier, seed: number, lotNumber: number) => number;
@@ -221,8 +221,19 @@ export function getView(state: Stage3State, economy = legacyEconomy): Stage3View
     case 'prologue':
       return getGarageView(state);
     default: {
-      const view = getGarageView(state, state.lotSeed === null ? undefined : economy.advancePrice);
+      const advancePrice = state.lotSeed === null ? (price: number) => price + state.lot.bidIncrement : economy.advancePrice;
+      const view = getGarageView(state, advancePrice);
       if (view.phase === 'recovery' || view.phase === 'prologue') return view;
+      if (state.phase === 'inspection' || state.phase === 'bidding') {
+        let amount = state.phase === 'bidding' ? state.lastPlayerBid : 0;
+        const opponents = state.lot.opponents.map(({ id, name }): AuctionOpponentView => {
+          if (state.phase === 'inspection') return { name, amount: null, state: 'waiting' };
+          if (!state.activeOpponentIds.includes(id)) return { name, amount: null, state: 'out' };
+          amount = advancePrice(amount);
+          return { name, amount, state: id === state.leaderId ? 'leading' : 'bid' };
+        });
+        return { ...view, tier: state.tier, opponents };
+      }
       return { ...view, tier: state.tier };
     }
   }

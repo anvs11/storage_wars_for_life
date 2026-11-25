@@ -1,19 +1,19 @@
 import { familyOccasion } from '../game/stage7-family';
 import type { Stage7Dispatch, Stage7View } from '../game/stage7-engine';
+import { outingAvailable, periodNames, waitLabels } from '../game/stage7-calendar';
 import { actionButton, bankFor, element, replaceScreen, rubles } from './dom';
 import { mountStage5 } from './mount';
 import { relationshipGoalFor } from './relationship';
 import { mountPaidVisit } from './stage7-trip';
 import './stage7.css';
 
-const periodNames = { morning: 'утро', afternoon: 'день', evening: 'вечер', night: 'ночь' } as const;
 const primary = 'garage__button garage__button--primary';
 
 function boxContents(view: Stage7View, dispatch: Stage7Dispatch, canUnpack = false): HTMLElement {
   const { flea, screen } = view;
   const panel = element('section', 'garage__panel stage7__box');
   panel.append(element('h2', 'garage__heading', 'Коробка для барахолки'),
-    element('p', 'hub__detail', `Занято ${flea.used} из ${flea.limit} мест`));
+    element('p', 'hub__detail', `Занято ${flea.used} из ${flea.limit} мест · свободно ${flea.limit - flea.used}`));
   const pending = screen.phase === 'cargo' && screen.baggage
     ? screen.items.filter(({ id }) => flea.packing.some((item) => item.id === id && item.selected)) : [];
   if (!flea.items.length && !pending.length) panel.append(element('p', 'hub__detail', 'В коробке пока пусто.'));
@@ -104,12 +104,30 @@ function familyDatePanel(view: Stage7View, dispatch: Stage7Dispatch): HTMLElemen
   return panel;
 }
 
-export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage7Dispatch, animateVisit = false): void {
+export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage7Dispatch, animateVisit = false,
+  watchJobAd?: (revision: number) => void): void {
   const { screen, calendar, flea, paidVisit } = view;
   const expectedRevision = screen.revision;
+  if (screen.phase === 'job' && !view.jobUnlocked) {
+    const page = element('section', 'garage');
+    const header = element('header', 'garage__header');
+    const title = element('h1', 'garage__title', 'Подработка в гараже');
+    title.tabIndex = -1;
+    header.append(title, bankFor(screen.bank));
+    const panel = element('section', 'garage__panel');
+    panel.append(element('p', '', `Оплата за сортировку — ${rubles(screen.reward)}. Для доступа к заказу посмотрите видео.`));
+    if (watchJobAd) panel.append(actionButton('Посмотреть рекламу', primary, () => watchJobAd(screen.revision)));
+    panel.append(actionButton('Вернуться домой', 'garage__button', () => dispatch({ type: 'navigate', room: 'home', expectedRevision })));
+    page.append(header, panel);
+    replaceScreen(root, page, title);
+    return;
+  }
+  const returningToRest = screen.phase === 'home' && root.contains(document.activeElement)
+    && document.activeElement?.getAttribute('data-screen-focus') === 'rest';
   if (paidVisit?.open) {
     mountPaidVisit(root, paidVisit.record, {
       bank: screen.bank, revision: screen.revision, calendar, relationship: screen.phase === 'relationship',
+      vehicle: view.vehicle.model,
     }, dispatch, animateVisit);
     return;
   }
@@ -123,7 +141,9 @@ export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage
     const sky = element('div', 'stage7__sky');
     sky.setAttribute('aria-hidden', 'true');
     sky.append(element('span', 'stage7__moon'), element('span', 'stage7__sun'));
-    night.append(header, sky, actionButton('Проснуться', primary, () => dispatch({ type: 'wakeUp', expectedRevision })));
+    const wake = actionButton('Проснуться', primary, () => dispatch({ type: 'wakeUp', expectedRevision }));
+    wake.dataset.screenFocus = 'wake-up';
+    night.append(header, sky, wake);
     replaceScreen(root, night, title);
     return;
   }
@@ -133,7 +153,22 @@ export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage
     return;
   }
 
+  const boughtNow = screen.phase === 'cargo' && !screen.baggage
+    && root.firstElementChild?.getAttribute('data-auction-lot') === String(screen.lotNumber);
   mountStage5(root, screen, dispatch, calendar, { data: flea, dispatch });
+  if (boughtNow) {
+    const announcer = element('div', 'auction-call');
+    announcer.setAttribute('role', 'status');
+    announcer.setAttribute('aria-label', `Продано вам за ${rubles(screen.purchasePrice)}`);
+    const count = element('span', 'auction-call__steps');
+    count.setAttribute('aria-hidden', 'true');
+    for (const word of ['Раз', 'Два', 'Три']) count.append(element('span', '', word));
+    const sold = element('span', 'auction-call__sold', `Лот ваш · ${rubles(screen.purchasePrice)}`);
+    sold.setAttribute('aria-hidden', 'true');
+    sold.prepend(element('i', 'auction-call__gavel'));
+    announcer.append(count, sold);
+    root.querySelector('.stage5__close')?.append(announcer);
+  }
   if (screen.phase === 'opening') return;
   const panel = element('section', 'garage__panel stage7__calendar');
   panel.setAttribute('aria-label', 'Игровой календарь');
@@ -152,15 +187,45 @@ export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage
     else if (daysAway === 0) summary.append(element('p', 'hub__detail', 'Сложи вещи для барахолки в гараже.'));
     if (paidVisit) panel.append(actionButton('Фото последней поездки', 'garage__button',
       () => dispatch({ type: 'openVisitPhoto', expectedRevision })));
-    if (calendar.outing) {
-      const until = calendar.period === 'morning' ? 'дня' : 'вечера';
-      panel.append(actionButton(`Подождать до ${until}`, 'garage__button',
+    if (outingAvailable(calendar.period)) {
+      panel.append(actionButton(`Подождать ${waitLabels[calendar.period]}`, 'garage__button',
         () => dispatch({ type: 'waitUntilNextPeriod', expectedRevision })));
-    } else {
-      panel.append(actionButton('Лечь спать', primary, () => dispatch({ type: 'sleep', expectedRevision })));
     }
   }
-  root.querySelector(':scope > .garage > .garage__header')?.after(panel);
+  const scene = root.querySelector(':scope > .garage');
+  if (['garage', 'home', 'inspection', 'bidding'].includes(screen.phase)) scene?.append(panel);
+  else scene?.querySelector('.garage__header')?.after(panel);
+  if (view.canParkLot && screen.phase === 'cargo') {
+    const action = actionButton('Отложить разбор и вернуться к торгам', 'garage__button',
+      () => dispatch({ type: 'parkLot', expectedRevision }));
+    scene?.querySelector('.stage5__layout > .stage5__stack:last-child')?.append(action);
+  }
+  if (view.parkedLots.length && ['home', 'garage', 'hub'].includes(screen.phase)) {
+    const parked = element('section', 'garage__panel stage7__parked');
+    parked.append(element('h2', 'garage__heading', 'Купленные гаражи'));
+    for (const lot of view.parkedLots) {
+      parked.append(actionButton(`Разобрать лот №${lot.lotNumber} · куплен за ${rubles(lot.purchasePrice)}`, 'garage__button',
+        () => dispatch({ type: 'resumeLot', expectedRevision, lotNumber: lot.lotNumber })));
+    }
+    scene?.querySelector('.garage__header')?.after(parked);
+  }
+  if (calendar.period === 'evening' && ['home', 'garage', 'car', 'market', 'inbox', 'hub'].includes(screen.phase)) {
+    const atHome = screen.phase === 'home';
+    const rest = actionButton(atHome ? 'Лечь спать' : 'Домой отдыхать', primary, () => {
+      dispatch(atHome ? { type: 'sleep', expectedRevision } : { type: 'navigate', room: 'home', expectedRevision });
+    });
+    rest.dataset.screenFocus = 'rest';
+    const notice = element('section', 'garage__panel stage7__rest');
+    notice.append(element('h2', '', 'Пора отдохнуть'),
+      element('p', '', 'Герой устал. После сна снова будут доступны три выезда.'), rest);
+    const auctionLink = scene?.querySelector('[data-screen-focus="auctions"]');
+    if (auctionLink instanceof HTMLButtonElement) {
+      auctionLink.disabled = true;
+      auctionLink.textContent = 'Торги завтра';
+    }
+    scene?.querySelector('.garage__header')?.after(notice);
+    if (returningToRest) rest.focus({ preventScroll: true });
+  }
   const datePanel = familyDatePanel(view, dispatch);
   if (datePanel) panel.after(datePanel);
   if (screen.phase === 'garage' || screen.phase === 'cargo' && screen.baggage) {

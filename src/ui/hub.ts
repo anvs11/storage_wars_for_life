@@ -88,6 +88,7 @@ export function mountHub(root: HTMLElement, view: HubView, dispatch: Stage4Dispa
     const card = element('li', 'garage__panel hub__card');
     const first = group[0];
     if (!first) continue;
+    if (first.id === 'home') card.dataset.homeOffer = '';
     card.append(element('h3', 'hub__name', first.title));
     for (const offer of group) {
       const row = element('div', 'hub__offer');

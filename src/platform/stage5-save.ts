@@ -23,24 +23,42 @@ function validListing(value: unknown, items: readonly OwnedItem[]) {
   if (!isRecord(value) || typeof value.id !== 'string' || !items.some(({ id }) => id === value.itemId) ||
       !isMoney(value.price) || value.price === 0) return false;
   const offer = value.offer;
-  return offer === null || isRecord(offer) && typeof offer.id === 'string' && typeof offer.buyer === 'string' &&
-    isMoney(offer.price) && offer.price > 0 && offer.price <= value.price && typeof offer.unread === 'boolean' &&
-    (offer.delivery === undefined || typeof offer.delivery === 'boolean' && (!offer.delivery || offer.price === value.price)) &&
-    (offer.countered === undefined || typeof offer.countered === 'boolean');
+  const limit = value.price;
+  const validOffer = (offer: unknown): boolean => isRecord(offer) && typeof offer.id === 'string' && typeof offer.buyer === 'string' &&
+    isMoney(offer.price) && offer.price > 0 && offer.price <= limit && typeof offer.unread === 'boolean' &&
+    (offer.delivery === undefined || typeof offer.delivery === 'boolean' && (!offer.delivery || offer.price === limit)) &&
+    (offer.countered === undefined || typeof offer.countered === 'boolean') &&
+    (offer.closed === undefined || typeof offer.closed === 'boolean') &&
+    (offer.ceiling === undefined || isMoney(offer.ceiling) && offer.ceiling >= offer.price && offer.ceiling <= limit) &&
+    (offer.messages === undefined || Array.isArray(offer.messages) && offer.messages.length <= 20 && offer.messages.every(message =>
+      isRecord(message) && (message.side === 'player' || message.side === 'buyer') &&
+      typeof message.text === 'string' && message.text.length <= 300));
+  if (offer !== null && !validOffer(offer)) return false;
+  const others = value.otherOffers;
+  if (others === undefined) return true;
+  if (!offer || !Array.isArray(others) || others.length > 2 || !others.every(validOffer)) return false;
+  const all = [offer, ...others];
+  return new Set(all.map(thread => thread.id)).size === all.length &&
+    new Set(all.map(thread => thread.buyer)).size === all.length;
 }
 
-export function isStage5State(value: unknown, boxed: readonly OwnedItem[] = []): value is Stage5State {
+export function isStage5State(value: unknown, boxed: readonly OwnedItem[] = [], lastAuctionNumber?: number): value is Stage5State {
   if (!isRecord(value) || !exactKeys(value, [
     'base', 'opening', 'room', 'legacyLot', 'items', 'cargo', 'listings', 'deals', 'lastSale', 'lastDeal', 'job', 'jobIncorrect',
-    'lotEdition', 'capacityUpgrades', 'baggageArrived',
+    'lotEdition', 'capacityUpgrades', 'baggageArrived', ...(Object.hasOwn(value, 'reviews') ? ['reviews'] : []),
   ])) return false;
+  const reviews = value.reviews;
+  if (reviews !== undefined && (!Array.isArray(reviews) || reviews.length > 100 || !reviews.every(review =>
+    isRecord(review) && typeof review.buyer === 'string' && typeof review.item === 'string' &&
+    typeof review.text === 'string' && [1, 2, 3, 4, 5].some(stars => stars === review.stars)))) return false;
   const { base, opening, room, legacyLot, items, cargo, listings, deals, lastSale, lastDeal, job, jobIncorrect,
     lotEdition, capacityUpgrades, baggageArrived } = value;
-  if (typeof legacyLot !== 'boolean' || (lotEdition !== 5 && lotEdition !== 6) ||
+  if (typeof legacyLot !== 'boolean' || (lotEdition !== 5 && lotEdition !== 6 && lotEdition !== 7) ||
       typeof baggageArrived !== 'boolean' || !areIds(capacityUpgrades, ['garage', 'car']) ||
       !isStage4State(base, economyFor({ legacyLot, lotEdition }), true)) return false;
   const game = base.game;
   if (game.phase === 'prologue') return false;
+  const latestLot = lastAuctionNumber ?? game.lotNumber;
   if (baggageArrived && game.phase !== 'baggageInventory') return false;
   if (opening !== null && (!prologueFrames.some((frame) => frame === opening) || game.lotNumber !== 0 || room !== null)) return false;
   if (room !== null && (!roomNames.some((name) => name === room) || game.phase !== 'hub' || base.relationshipOpen)) return false;
@@ -55,7 +73,7 @@ export function isStage5State(value: unknown, boxed: readonly OwnedItem[] = []):
     deal.baggageId === undefined ? item.lotNumber === deal.lotNumber && item.lotNumber !== null : item.baggageId === deal.baggageId;
   if (!Array.isArray(deals) || !deals.every((deal) => isRecord(deal) && isMoney(deal.cost) &&
       isMoney(deal.revenue) && (deal.repairCost === undefined || isMoney(deal.repairCost)) &&
-      (deal.baggageId === undefined ? isMoney(deal.lotNumber) && deal.lotNumber <= game.lotNumber
+      (deal.baggageId === undefined ? isMoney(deal.lotNumber) && deal.lotNumber <= latestLot
         : typeof deal.baggageId === 'string' && deal.lotNumber === null) &&
       owned.some((item) => belongs(item, deal)))) return false;
   if (new Set(deals.map(({ lotNumber, baggageId }) => baggageId ?? lotNumber)).size !== deals.length ||
@@ -63,7 +81,7 @@ export function isStage5State(value: unknown, boxed: readonly OwnedItem[] = []):
   if (lastSale !== null && (!isRecord(lastSale) || typeof lastSale.name !== 'string' || !isMoney(lastSale.price))) return false;
   if (lastDeal !== null) {
     if (!isRecord(lastDeal) ||
-        (lastDeal.lotNumber !== null && (!isMoney(lastDeal.lotNumber) || lastDeal.lotNumber > game.lotNumber)) ||
+        (lastDeal.lotNumber !== null && (!isMoney(lastDeal.lotNumber) || lastDeal.lotNumber > latestLot)) ||
         (lastDeal.repairCost !== undefined && !isMoney(lastDeal.repairCost))) return false;
     const receipt = lastDeal.receipt;
     if (!isRecord(receipt) || receipt.outcome !== 'sold' || !isMoney(receipt.revenue) ||

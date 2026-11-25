@@ -53,6 +53,17 @@ function setup(storage: SaveStorage, bank = 0, status = 0): Stage7State {
   return fixture;
 }
 
+it('обновляет старый нейтральный отзыв при загрузке и сохраняет отзыв с одной звездой', () => {
+  const storage = memory();
+  const state = setup(storage);
+  const reviewer = { buyer: 'Яна', item: 'Настольная лампа' };
+  const broken = { ...reviewer, stars: 1, text: 'Товар сломался сразу после покупки.' } as const;
+  const old = { ...reviewer, stars: 3, text: 'Сделка состоялась, впечатление нейтральное.' } as const;
+  expect(save(storage, { ...state, base: { ...state.base, reviews: [broken, old] } })).toEqual({ ok: true });
+  expect(loadCurrent(storage).base.reviews).toEqual([broken,
+    { ...reviewer, stars: 4, text: 'Всё работает, сделка прошла хорошо.' }]);
+});
+
 const home = { type: 'navigate', room: 'home' } as const;
 const hub = { type: 'navigate', room: 'auctions' } as const;
 const enter = { type: 'enterAuction', tier: 'ordinary' } as const;
@@ -67,7 +78,7 @@ function fleaOffer(storage: SaveStorage, funds = 0, status = 0): Stage7State {
   const garage = setup(storage, funds, status);
   let state = play(storage, garage,
     ...['home-kettle', 'home-lamp', 'home-tools'].map((itemId) => ({ type: 'packForFlea', itemId }) as const), home);
-  for (let day = 1; day < 6; day++) state = play(storage, state, wait, wait, sleep, wake);
+  for (let day = 1; day < 6; day++) state = play(storage, state, wait, wait, wait, sleep, wake);
   return play(storage, state, openFlea);
 }
 
@@ -88,7 +99,7 @@ it('читает v1–v3 и переводит деньги ровно один 
       calendar: { day: 1, period: 'morning' }, familyDate: null, paidVisit: null, flea: { items: [] } });
     const homeAgain = play(storage, migrated, { type: 'pass' }, { type: 'nextLot' });
     expect(getView(homeAgain)).toMatchObject({ screen: { phase: 'home', bank: 10000 }, calendar: { period: 'afternoon' } });
-    expect(JSON.parse(storage.getItem(SAVE_KEY)!).version, `v${index + 1}`).toBe(6);
+    expect(JSON.parse(storage.getItem(SAVE_KEY)!).version, `v${index + 1}`).toBe(7);
   }
 });
 
@@ -113,7 +124,7 @@ it('переносит профиль v5 с улучшением, отклико
   const active = play(storage, garage, { type: 'buyCapacity', target: 'car' }, hub, { type: 'spend', offerId: 'home' },
     { type: 'openRelationship' }, { type: 'meetNeighbor' }, { type: 'returnToHub' },
     { type: 'navigate', room: 'market' }, { type: 'publish', itemId: 'home-lamp', price: 750 }, { type: 'waitForBuyer' });
-  const nextMorning = play(storage, active, home, wait, sleep, wake, hub, enter, { type: 'bid' }, { type: 'bid' },
+  const nextMorning = play(storage, active, home, wait, wait, sleep, wake, hub, enter, { type: 'bid' }, { type: 'bid' },
     { type: 'openBox', boxId: 'box' }, { type: 'toggleCargo', itemId: 'tool' });
   expect(nextMorning.base.listings[0]?.offer?.price).toBe(750);
   expect(saveV5(storage, nextMorning.base)).toEqual({ ok: true });
@@ -136,7 +147,7 @@ it('восстанавливает оплаченный чемодан v5 и р�
   const garage = play(storage, restored, { type: 'receiveBaggage' }, { type: 'openBox', boxId: 'suitcase' },
     { type: 'toggleFleaBaggage', itemId: 'suitcase-find' }, { type: 'finishCargo', leaveRemaining: false });
   expect(garage.flea.items).toHaveLength(1);
-  expect(getView(garage)).toMatchObject({ screen: { bank: 600 }, calendar: { period: 'morning', remainingOutings: 2 } });
+  expect(getView(garage)).toMatchObject({ screen: { bank: 600 }, calendar: { period: 'morning', remainingOutings: 3 } });
 });
 
 it.each([
@@ -157,7 +168,7 @@ it.each([
   expect(restored).toEqual(before);
   const committed = play(storage, restored, action);
   expect(getView(committed)).toMatchObject({ screen: { bank: action.type === 'confirmFleaVisit' ? 1996 : 400 },
-    calendar: { period: 'afternoon', remainingOutings: 1 } });
+    calendar: { period: 'afternoon', remainingOutings: 2 } });
   expect(applySavedCommand(locked, committed, command)).toEqual({ kind: 'ignored', state: committed });
   expect(loadCurrent(storage)).toEqual(committed);
 });

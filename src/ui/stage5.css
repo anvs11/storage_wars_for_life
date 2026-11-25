@@ -213,3 +213,13 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+.market-thread summary, .market-rating summary, .game-menu summary { cursor: pointer; min-height: 44px; align-content: center; }
+.market-messages { padding: 0; margin: 0; list-style: none; display: grid; gap: .5rem; max-height: 360px; overflow: auto; }
+.market-message { max-width: 90%; padding: .5rem .7rem; background: #202d2b; border-radius: .75rem; overflow-wrap: anywhere; }
+.market-message--player { justify-self: end; background: #3b3727; }
+.market-message p, .market-rating p { margin: 0; }
+.market-rating { margin-top: 12px; }
+.game-menu { position: relative; }
+.game-menu summary { display: grid; place-items: center; padding-inline: .4rem; list-style: none; }
+.game-menu summary::-webkit-details-marker { display: none; }
+.game-menu__actions { position: absolute; right: 0; z-index: 9; display: grid; gap: 4px; width: max-content; }

@@ -1,0 +1,52 @@
+.first-step {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 44px;
+  align-items: start;
+  gap: 9px;
+  padding: 9px;
+  margin-bottom: 12px;
+  border: 1px solid #9f7945;
+  border-radius: 12px;
+  background: #30291f;
+  color: #fcf1dc;
+}
+
+.first-step > img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 7px;
+}
+
+.first-step__message > strong { color: #ffd28a; }
+.first-step__message > p { margin: 0; font-size: .875rem; line-height: 1.4; }
+
+.first-step__dismiss {
+  min-width: 44px;
+  min-height: 44px;
+  color: #fcf1dc;
+  background: transparent;
+  border: 1px solid #8b795b;
+  border-radius: 8px;
+  font-size: 1.3rem;
+  cursor: pointer;
+}
+
+.first-step__dismiss:focus-visible,
+.first-step-target { outline: 2px solid #ffd07b; outline-offset: 3px; }
+.door-scene .first-step-target { outline-offset: -2px; }
+.auction-layout > .first-step { margin: 0; }
+.auction-layout:has(.first-step) .garage__hints:has(> .garage__prompt:only-child) { display: none; }
+.sales-help { margin-bottom: 12px; }
+.sales-help summary { cursor: pointer; min-height: 44px; align-content: center; }
+.sales-help ol { margin: 0; padding-inline-start: 1.3rem; }
+.sales-help li + li { margin-block-start: .5rem; }
+
+@media (min-width: 960px) {
+  .auction-layout > .first-step { grid-column: 2; }
+}
+
+@media (max-width: 480px) {
+  .auction-layout .first-step { gap: 6px; padding: 6px; }
+  .garage:has(.auction-layout > .first-step) > .garage__header { margin-bottom: 10px; }
+}

@@ -2,6 +2,8 @@ import { expect, it } from 'vitest';
 import { BACKUP_KEY, SAVE_KEY } from '../platform/save';
 import { save as saveStage5 } from '../platform/stage5-save';
 import { applySavedCommand, load, save } from '../platform/stage7-save';
+import { outingAvailable } from './stage7-calendar';
+import { marketOffers } from './market-dialogue';
 import { applyCommand, getView, migrateStage5, newGame } from './stage7-engine';
 import type { Stage7Command, Stage7State } from './stage7-engine';
 
@@ -52,15 +54,64 @@ const wait = { type: 'waitUntilNextPeriod' } as const;
 const home = { type: 'navigate', room: 'home' } as const;
 const closePhoto = { type: 'closeVisitPhoto' } as const;
 
-it('завершает два паса при возвращении и отклоняет третий выезд вечером', () => {
+it('покупает два гаража за день и разбирает их после перезагрузки без повторного расхода выезда', () => {
+  function buy(state: Stage7State): Stage7State {
+    let current = play(state, enter);
+    for (let turn = 0; turn < 20 && current.base.base.game.phase !== 'reveal'; turn += 1) {
+      current = play(current, { type: 'bid' });
+    }
+    expect(current.base.base.game.phase).toBe('reveal');
+    return current;
+  }
+  let state = play(funded(50000), auctions);
+  state = reload(play(buy(state), { type: 'parkLot' }));
+  expect(getView(state).parkedLots.map(lot => lot.lotNumber)).toEqual([1]);
+  state = reload(play(buy(state), { type: 'parkLot' }));
+  const bank = state.base.base.game.bank;
+  expect(getView(state).parkedLots.map(lot => lot.lotNumber)).toEqual([1, 2]);
+  const evening = play(state, home, wait);
+  const opened = reload(play(evening, { type: 'resumeLot', lotNumber: 1 }, { type: 'openBox', boxId: 'box' },
+    { type: 'toggleCargo', itemId: 'tool' }));
+  const packed = reload(play(opened, { type: 'finishCargo', leaveRemaining: true }));
+  expect(getView(packed)).toMatchObject({ screen: { phase: 'garage', bank }, calendar: { remainingOutings: 0 },
+    parkedLots: [{ lotNumber: 2 }] });
+  const second = reload(play(packed, { type: 'resumeLot', lotNumber: 2 }, { type: 'finishCargo', leaveRemaining: true }));
+  expect(getView(second)).toMatchObject({ screen: { phase: 'garage', bank }, parkedLots: [], calendar: { remainingOutings: 0 } });
+});
+
+it('сохраняет параллельные чаты, даёт сторговаться, закрывает грубый чат и начисляет один отзыв', () => {
+  const open = play(starter(), { type: 'navigate', room: 'market' },
+    { type: 'publish', itemId: 'home-kettle', price: 2300 },
+    { type: 'publish', itemId: 'home-lamp', price: 750 }, { type: 'navigate', room: 'inbox' });
+  const [first, second] = open.base.listings;
+  if (!first || !second) throw new Error('Нужны два объявления');
+  const [offer, rude] = marketOffers(first);
+  if (!offer || !rude) throw new Error('Нужны два покупателя на чайник');
+  expect(new Set(open.base.listings.flatMap(marketOffers).map(thread => thread.buyer)).size).toBe(3);
+  const answered = reload(play(open, { type: 'messageBuyer', listingId: first.id, offerId: offer.id, text: 'Можете дать 2 100?' },
+    { type: 'messageBuyer', listingId: first.id, offerId: rude.id, text: 'Ты идиот.' }));
+  const [agreed, closed] = marketOffers(answered.base.listings[0]!);
+  expect(agreed).toMatchObject({ price: 2100, closed: false });
+  expect(closed).toMatchObject({ closed: true });
+  expect(send(answered, { type: 'acceptOffer', listingId: first.id, offerId: closed!.id })).toBe(answered);
+  const sale = { type: 'acceptOffer', listingId: first.id, offerId: agreed!.id } as const;
+  const sold = reload(play(answered, sale));
+  expect(getView(sold)).toMatchObject({ screen: { bank: 2100, reviews: [{ stars: 5 }] } });
+  expect(sold.base.listings).toEqual([second]);
+  expect(send(sold, sale)).toBe(sold);
+});
+
+it('завершает три выезда при возвращении и отклоняет четвёртый вечером', () => {
   const inspection = play(funded(3350), auctions, enter);
-  expect(getView(inspection).calendar).toMatchObject({ day: 1, weekday: 'Понедельник', outing: 'утренний выезд', remainingOutings: 2 });
+  expect(getView(inspection).calendar).toMatchObject({ day: 1, weekday: 'Понедельник', outing: 'утренний выезд', remainingOutings: 3 });
   const passed = reload(play(inspection, pass));
   expect(getView(passed).calendar.period).toBe('morning');
   const afternoon = play(passed, homeFromLot);
-  expect(getView(afternoon)).toMatchObject({ screen: { phase: 'home', bank: 3350 }, calendar: { period: 'afternoon', remainingOutings: 1 } });
+  expect(getView(afternoon)).toMatchObject({ screen: { phase: 'home', bank: 3350 }, calendar: { period: 'afternoon', remainingOutings: 2 } });
   expect(applyCommand(afternoon, { ...homeFromLot, expectedRevision: revision(passed) })).toBe(afternoon);
-  const evening = play(afternoon, auctions, enter, pass, homeFromLot, auctions);
+  const late = reload(play(afternoon, auctions, enter, pass, homeFromLot));
+  expect(getView(late).calendar).toMatchObject({ period: 'lateAfternoon', remainingOutings: 1 });
+  const evening = play(late, auctions, enter, pass, homeFromLot, auctions);
   expect(getView(evening)).toMatchObject({ screen: { phase: 'hub', bank: 3350 }, calendar: { period: 'evening', remainingOutings: 0 } });
   expect(send(evening, enter)).toBe(evening);
 });
@@ -74,7 +125,7 @@ it('сохраняет купленный лот и тратит утро пос
   expect(getView(delivered)).toMatchObject({
     screen: { phase: 'garage', bank: 350, items: expect.arrayContaining([{ id: 'owned-1-bicycle', name: 'Велосипед',
       size: 4, position: 'floor', condition: 'worn', clue: expect.any(String), estimate: expect.any(Object) }]) },
-    calendar: { period: 'afternoon', remainingOutings: 1 },
+    calendar: { period: 'afternoon', remainingOutings: 2 },
   });
   expect(delivered.base.items.some(({ id }) => id === 'owned-1-tool')).toBe(false);
   expect(send(delivered, { type: 'finishCargo', leaveRemaining: true })).toBe(delivered);
@@ -84,11 +135,11 @@ it('проводит с понедельника до следующей суб�
   let state = play(starter(), home);
   expect(getView(state).calendar.nextMarket).toEqual({ weekday: 'Суббота', daysAway: 5 });
   for (let day = 1; day <= 12; day++) {
-    expect(getView(state).calendar).toMatchObject({ day, period: 'morning', remainingOutings: 2 });
+    expect(getView(state).calendar).toMatchObject({ day, period: 'morning', remainingOutings: 3 });
     if (day === 6) expect(getView(state).calendar).toMatchObject({ weekday: 'Суббота', nextMarket: { daysAway: 0 } });
     if (day === 7) expect(getView(state).calendar).toMatchObject({ weekday: 'Воскресенье', nextMarket: { daysAway: 0 } });
     if (day === 8) expect(getView(state).calendar).toMatchObject({ weekday: 'Понедельник', nextMarket: { daysAway: 5 } });
-    const evening = play(state, wait, wait);
+    const evening = play(state, wait, wait, wait);
     expect(getView(evening).calendar).toMatchObject({ day, period: 'evening', remainingOutings: 0 });
     expect(send(evening, wait)).toBe(evening);
     const night = reload(play(evening, { type: 'sleep' }));
@@ -113,13 +164,16 @@ it.each(['market', 'home'] as const)('выдаёт гарантированны�
   expect(listing.offer?.price).toBe(2000);
   const sold = play(next, { type: 'navigate', room: 'inbox' },
     { type: 'acceptOffer', listingId: listing.id, offerId: listing.offer!.id });
-  expect(getView(sold)).toMatchObject({ screen: { bank: 2000 }, calendar: { period: 'afternoon', remainingOutings: 1 } });
+  expect(getView(sold)).toMatchObject({ screen: { bank: 2000 }, calendar: { period: 'afternoon', remainingOutings: 2 } });
 });
 
 it('позволяет восстановить нулевой банк и продолжить тот же выезд', () => {
   const job = play(starter(), auctions, enter);
   expect(getView(job)).toMatchObject({ screen: { phase: 'job', bank: 0, reward: 2000 }, calendar: { period: 'morning' } });
-  const inspection = play(job, { type: 'sortItem', station: 'floor' }, { type: 'sortItem', station: 'shelf' },
+  expect(send(job, { type: 'sortItem', station: 'floor' })).toBe(job);
+  const authorized = reload(play(job, { type: 'authorizeJob' }));
+  expect(send(authorized, { type: 'authorizeJob' })).toBe(authorized);
+  const inspection = play(authorized, { type: 'sortItem', station: 'floor' }, { type: 'sortItem', station: 'shelf' },
     { type: 'sortItem', station: 'recycle' }, { type: 'claimJob' });
   expect(getView(inspection)).toMatchObject({ screen: { phase: 'inspection', bank: 2000 }, calendar: { period: 'morning' } });
   expect(play(inspection, pass, homeFromLot).calendar.period).toBe('afternoon');
@@ -131,12 +185,11 @@ it('списывает выезд за кино и ужин, сохраняет 
   const cinema = reload(play(ready, { type: 'inviteToCinema' }));
   expect(getView(cinema)).toMatchObject({ screen: { bank: 10250, status: 20, step: 'cinemaVisited' }, calendar: { period: 'afternoon' } });
   const dinner = play(cinema, closePhoto, { type: 'inviteToDinner' });
-  expect(getView(dinner)).toMatchObject({ screen: { bank: 7650, status: 24, step: 'dinnerVisited' }, calendar: { period: 'evening' } });
+  expect(getView(dinner)).toMatchObject({ screen: { bank: 7650, status: 24, step: 'dinnerVisited' }, calendar: { period: 'lateAfternoon' } });
   const hub = play(dinner, closePhoto, { type: 'returnToHub' });
-  expect(send(hub, { type: 'spend', offerId: 'restaurant' })).toBe(hub);
   const baggage = reload(play(hub, { type: 'callAirport' }, { type: 'buyBaggage' }, { type: 'receiveBaggage' },
     { type: 'openBox', boxId: 'suitcase' }, { type: 'toggleCargo', itemId: 'suitcase-find' }, { type: 'finishCargo', leaveRemaining: false }));
-  expect(getView(baggage)).toMatchObject({ screen: { phase: 'garage', bank: 5250 }, calendar: { period: 'evening' } });
+  expect(getView(baggage)).toMatchObject({ screen: { phase: 'garage', bank: 5250 }, calendar: { period: 'lateAfternoon' } });
 });
 
 it('подтверждает время вместе с оплатой и оставляет его прежним при отказе записи и нехватке денег', () => {
@@ -172,7 +225,7 @@ it.each([2599, 3000])('совместный ужин при банке %i сох
   }
   const confirmed = reload(dinner);
   expect(getView(confirmed)).toMatchObject({ screen: { bank: 400, status: 22, step: 'dinnerVisited' },
-    calendar: { period: 'evening', remainingOutings: 0 }, paidVisit: { open: true, record: {
+    calendar: { period: 'lateAfternoon', remainingOutings: 1 }, paidVisit: { open: true, record: {
       venue: 'restaurant', together: true, spent: 2600, statusGain: 4, outing: 'afternoon',
     } } });
   expect(applyCommand(confirmed, command)).toBe(confirmed);
@@ -202,6 +255,22 @@ it('читает снимок v6 с барахолкой и восстанавл
   expect(load(storage)).toMatchObject({ kind: 'recovered', state });
 });
 
+it('сохраняет открытую фотографию v6 вечером и оплачивает поездку в третий выезд', () => {
+  const state = play(funded(10000, 18), home, wait, auctions);
+  const secondVisit = play(state, { type: 'spend', offerId: 'restaurant' });
+  const legacy = { ...secondVisit, calendar: { day: 1, period: 'evening' } };
+  const storage = memory();
+  storage.setItem(SAVE_KEY, JSON.stringify({ version: 6, state: legacy }));
+  const restored = load(storage);
+  expect(restored).toMatchObject({ kind: 'loaded', state: legacy });
+  if (restored.kind !== 'loaded') throw new Error('Ожидается сохранение v6');
+  expect(getView(play(restored.state, closePhoto, home)).calendar.remainingOutings).toBe(0);
+
+  const lastVisit = reload(play(secondVisit, closePhoto, { type: 'spend', offerId: 'restaurant' }));
+  expect(getView(lastVisit)).toMatchObject({ screen: { bank: 4800 }, calendar: { period: 'evening', remainingOutings: 0 },
+    paidVisit: { open: true, record: { outing: 'lateAfternoon', spent: 2600 } } });
+});
+
 it('переносит незавершённые торги v5 в утро и восстанавливает резерв при испорченном календаре', () => {
   const bidding = reload(play(funded(3350), auctions, enter, { type: 'bid' }));
   const storage = memory();
@@ -210,7 +279,7 @@ it('переносит незавершённые торги v5 в утро и �
   expect(load(storage)).toEqual({ kind: 'loaded', state: migrated });
   const expectedRevision = revision(migrated);
   expect(applySavedCommand(storage, migrated, { type: 'pass', expectedRevision }).kind).toBe('saved');
-  expect(JSON.parse(storage.getItem(SAVE_KEY)!).version).toBe(6);
+  expect(JSON.parse(storage.getItem(SAVE_KEY)!).version).toBe(7);
   expect(JSON.parse(storage.getItem(BACKUP_KEY)!).version).toBe(5);
   storage.setItem(SAVE_KEY, JSON.stringify({ version: 6, state: { ...bidding, calendar: { day: 1, period: 'evening' } } }));
   expect(load(storage)).toMatchObject({ kind: 'recovered', state: migrated });
@@ -226,7 +295,7 @@ const pack = (itemId: string) => ({ type: 'packForFlea', itemId } as const);
 function reachMorning(state: Stage7State, day: number): Stage7State {
   if (state.base.room !== 'home') state = play(state, home);
   while (state.calendar.day < day) {
-    while (state.calendar.period === 'morning' || state.calendar.period === 'afternoon') state = play(state, wait);
+    while (outingAvailable(state.calendar.period)) state = play(state, wait);
     state = play(state, { type: 'sleep' }, { type: 'wakeUp' });
   }
   return state;
@@ -256,7 +325,7 @@ it('от одной субботы сохраняет поздравление �
   const command = { ...gift, expectedRevision: revision(sunday) };
   const celebrated = reload(play(sunday, gift));
   expect(getView(celebrated)).toMatchObject({ screen: { bank: 950, phase: 'home' },
-    calendar: { day: 7, period: 'morning', remainingOutings: 2 },
+    calendar: { day: 7, period: 'morning', remainingOutings: 3 },
     familyDate: { outcome: 'celebrated', affection: 1, status: 12, step: 'flowersGiven', nextGoal: { action: 'inviteToCinema' } } });
   expect(applyCommand(celebrated, command)).toBe(celebrated);
   expect(send(celebrated, gift)).toBe(celebrated);
@@ -266,7 +335,7 @@ it('от одной субботы сохраняет поздравление �
   expect(send(storyGift, { type: 'buyFlowers' })).toBe(storyGift);
   expect(reload(reachMorning(celebrated, 8)).familyDate).toEqual(celebrated.familyDate);
 
-  const night = reload(play(sunday, wait, wait, { type: 'sleep' }));
+  const night = reload(play(sunday, wait, wait, wait, { type: 'sleep' }));
   expect(night.familyDate).toEqual(sunday.familyDate);
   expect(send(night, gift)).toBe(night);
   const wake = { type: 'wakeUp', expectedRevision: revision(night) } as const;
@@ -337,7 +406,7 @@ it('продаёт две вещи из трёх на seed 64 и сохраня�
   expect(committed.state).toEqual(play(retry, confirmFlea));
   expect(load(storage)).toEqual({ kind: 'loaded', state: committed.state });
   const sold = committed.state;
-  expect(getView(sold)).toMatchObject({ screen: { bank: 5346 }, calendar: { day: 6, period: 'afternoon', remainingOutings: 1 },
+  expect(getView(sold)).toMatchObject({ screen: { bank: 5346 }, calendar: { day: 6, period: 'afternoon', remainingOutings: 2 },
     flea: { items: [{ id: 'home-lamp' }], visit: { phase: 'receipt', revenue: 1996,
       sold: [{ id: 'home-kettle', price: 1480 }, { id: 'home-tools', price: 516 }] } } });
   expect(applySavedCommand(storage, sold, command).kind).toBe('ignored');
@@ -352,13 +421,13 @@ it('продаёт две вещи из трёх на seed 64 и сохраня�
   expect(playedLot.offerSeeds).toEqual(baselineLot.offerSeeds);
 });
 
-it.each([[0, 0, 0], [1, 3, 2637]])('на seed %i фиксирует %i продаж на воскресной барахолке', (seed, count, revenue) => {
+it.each([[21, 0, 0], [1, 3, 2637]])('на seed %i фиксирует %i продаж на воскресной барахолке', (seed, count, revenue) => {
   const start = play(newGame(seed), { type: 'skipStory' }, home);
   const empty = reachMorning(start, 7);
   expect(send(empty, openFlea)).toBe(empty);
   const garage = play(empty, { type: 'navigate', room: 'garage' }, ...kitchenItems.map(pack), home);
   const receipt = reload(play(garage, openFlea, confirmFlea));
-  expect(getView(receipt)).toMatchObject({ screen: { bank: revenue }, calendar: { weekday: 'Воскресенье', remainingOutings: 1 },
+  expect(getView(receipt)).toMatchObject({ screen: { bank: revenue }, calendar: { weekday: 'Воскресенье', remainingOutings: 2 },
     flea: { visit: { phase: 'receipt', revenue } } });
   expect(receipt.flea.visit?.phase === 'receipt' && receipt.flea.visit.sold.length).toBe(count);
   expect(receipt.flea.items).toHaveLength(kitchenItems.length - count);
@@ -372,7 +441,7 @@ it('соблюдает объём коробки и гаража и сохран
   const packed = reload(play(garage, pack(bike.id)));
   expect(packed.flea.items).toEqual([bike]);
   expect(getView(packed).flea.used).toBe(4);
-  expect(send(packed, pack('home-kettle'))).toBe(packed);
+  expect(getView(play(packed, pack('home-kettle'))).flea.used).toBe(5);
   const extra = Array.from({ length: 5 }, (_, index) => ({ ...packed.base.items[0]!, id: `extra-${index}` }));
   const full = reload({ ...packed, base: { ...packed.base, items: [...packed.base.items, ...extra] } });
   const unpack = { type: 'unpackFlea', itemId: bike.id } as const;
@@ -380,6 +449,39 @@ it('соблюдает объём коробки и гаража и сохран
   const unpacked = reload(play(packed, unpack));
   expect(unpacked.base.items.at(-1)).toEqual(bike);
   expect(unpacked.flea.items).toHaveLength(0);
+});
+
+it('сохраняет 15 занятых мест в коробке, отказывает шестнадцатой вещи и выдаёт квитанцию', () => {
+  const upgraded = play(funded(11000), { type: 'buyCapacity', target: 'garage' });
+  const extra = Array.from({ length: 13 }, (_, index) => ({
+    ...upgraded.base.items[0]!, id: `flea-spare-${index}`,
+  }));
+  const stocked: Stage7State = { ...upgraded, base: { ...upgraded.base, items: [...upgraded.base.items, ...extra] } };
+  const firstBatch = reload(play(stocked, ...stocked.base.items.slice(0, 8).map(({ id }) => pack(id))));
+  const full = reload(play(firstBatch, ...firstBatch.base.items.slice(0, 7).map(({ id }) => pack(id))));
+  const spare = full.base.items[0]!;
+  expect(getView(full).flea).toMatchObject({ limit: 15, used: 15,
+    packing: [{ id: spare.id, blocked: 'В коробке не хватает места.' }],
+  });
+  expect(send(full, pack(spare.id))).toBe(full);
+  const paid = reload(play(reachMorning(full, 6), openFlea, confirmFlea));
+  const receipt = paid.flea.visit;
+  if (receipt?.phase !== 'receipt') throw new Error('Нужна квитанция барахолки');
+  expect(receipt.sold.length + paid.flea.items.length).toBe(15);
+  expect(getView(paid).screen.bank).toBe(receipt.revenue);
+});
+
+it('открывает отдельный экран Жигулей и сохраняет купленный фургон', () => {
+  const car = reload(play(funded(24000), { type: 'navigate', room: 'home' }, { type: 'navigate', room: 'car' }));
+  expect(getView(car)).toMatchObject({ screen: { phase: 'car', vehicle: { model: 'zhiguli', capacity: 4 } } });
+  expect(send(car, { type: 'buyCapacity', target: 'garage' })).toBe(car);
+  const replace = { type: 'buyCapacity', target: 'car' } as const;
+  const purchased = reload(play(car, replace));
+  expect(getView(purchased)).toMatchObject({ screen: { phase: 'car', bank: 6000 },
+    vehicle: { model: 'van', capacity: 8 } });
+  expect(send(purchased, replace)).toBe(purchased);
+  const loaded = play(purchased, auctions, enter, { type: 'bid' }, { type: 'bid' });
+  expect(getView(loaded).screen).toMatchObject({ phase: 'cargo', car: { limit: 8 } });
 });
 
 it('упаковывает находку из чемодана даже при полном гараже и сохраняет её себестоимость', () => {
