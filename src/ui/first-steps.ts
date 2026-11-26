@@ -51,12 +51,16 @@ function firstTip(state: Stage7State, view: Stage7View): Tip | null {
   }
   if (screen.phase === 'cargo' && !screen.baggage && screen.lotNumber <= 2) {
     if (screen.boxes.length && !base.cargo.length) return { title: 'Гараж твой', body: 'Открой коробку или отодвинь ширму. Теперь можно узнать, что было скрыто.', target: '[data-screen-focus^="open:"]' };
-    if (!base.cargo.length) return { title: 'Возьми вещь в руки', body: 'Нажми на предмет, сравни оценку и состояние. Забери то, что стоит места в машине.', target: '[data-screen-focus^="pick:"]' };
+    if (!base.cargo.length) return { title: 'Возьми вещь в руки', body: 'Нажми на предмет, сравни оценку и состояние. Выбери, что повезёшь домой.', target: '[data-screen-focus^="pick:"]' };
     return { title: 'Отвези находки в гараж', body: 'После разбора вещи появятся дома. Оттуда их можно выставить на доске.', target: '.stage5__confirm summary, [data-screen-focus="finish"]' };
   }
   if (lot > 0 && lot <= 2 && screen.phase === 'garage' && base.deals.length > 0) {
     const find = base.items.find(item => item.lotNumber !== null && !base.listings.some(listing => listing.itemId === item.id));
     if (find) return { title: 'От находки до выручки', body: 'Открой привезённую вещь. Если риск поломки высокий, сравни цену ремонта с возможной выручкой.', target: `[data-screen-focus="scene:${CSS.escape(find.id)}"]` };
+  }
+  if (lot > 0 && view.vehicle.model === 'scooter' && base.lastDeal && (screen.phase === 'garage' || screen.phase === 'home')) {
+    return { title: 'Поставь Жигули на ход', body: 'В «Мой транспорт» можно проверить стоимость ремонта и увидеть, сколько вещей поместится в седан.',
+      target: '[data-screen-focus="car"]' };
   }
   return null;
 }

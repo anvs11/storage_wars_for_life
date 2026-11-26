@@ -9,6 +9,8 @@ import type { GarageItemView, ListingView, Room, Stage5Command, Stage5View, Sale
 import { firstAuctionEconomy, stage6Economy } from './stage6-auctions';
 import { marketOffers, newMarketOffer, reviewFor, updateMarketOffer } from './market-dialogue';
 import { prologueFrames } from './stage5-contract';
+import { describeVehicle, hasBonusAuction, requiresLongBed, transportOffers } from './transport';
+import type { TransportState } from './transport';
 
 export interface OwnedItem extends GarageItemView {
   readonly value: number;
@@ -30,7 +32,10 @@ export interface Stage5State {
   readonly room: Room | null;
   readonly legacyLot: boolean;
   readonly lotEdition: 5 | 6 | 7;
-  readonly capacityUpgrades: readonly ('garage' | 'car')[];
+  readonly capacityUpgrades: readonly ('garage' | 'car' | 'shelves')[];
+  readonly transport?: TransportState;
+  readonly workshop?: true;
+  readonly house?: 4 | 5;
   readonly baggageArrived: boolean;
   readonly items: readonly OwnedItem[];
   readonly cargo: readonly string[];
@@ -121,11 +126,23 @@ export function migrateStage4(base: Stage4State): Stage5State {
 export const carLimit = 4;
 export const garageLimit = 8;
 export const jewelryLimit = 4;
-const upgrades = { garage: { price: 11000, current: garageLimit, next: 16 }, car: { price: 18000, current: carLimit, next: 8 } } as const;
+const upgrades = {
+  garage: { price: 11000, current: garageLimit, next: 16 },
+  car: { price: 18000, current: carLimit, next: 8 },
+  shelves: { price: 26000, current: 16, next: 24 },
+} as const;
+export const housePrices = { 4: 380000, 5: 2800000 } as const;
 export const capacityLimit = (owned: readonly string[], target: 'garage' | 'car'): number =>
-  owned.includes(target) ? upgrades[target].next : upgrades[target].current;
-export function vehicleFor(owned: readonly string[]) {
-  return { model: owned.includes('car') ? 'van' as const : 'zhiguli' as const, capacity: capacityLimit(owned, 'car') };
+  target === 'garage' && owned.includes('shelves') ? upgrades.shelves.next
+    : owned.includes(target) ? upgrades[target].next : upgrades[target].current;
+type TransportProfile = { readonly transport?: TransportState; readonly capacityUpgrades: readonly string[] };
+
+export function transportFor(state: TransportProfile): TransportState {
+  return state.transport ?? { model: state.capacityUpgrades.includes('car') ? 'van' : 'zhiguli' };
+}
+
+export function vehicleFor(state: TransportProfile) {
+  return describeVehicle(transportFor(state));
 }
 export const economyFor = (state: Pick<Stage5State, 'legacyLot' | 'lotEdition'>) =>
   state.legacyLot ? migratedEconomy : state.lotEdition === 5 ? rubleEconomy
@@ -153,18 +170,19 @@ function findInGarage(find: LotFind, lotNumber: number | null): OwnedItem {
   };
 }
 
-function repairQuote(item: OwnedItem, bank: number) {
+function repairQuote(item: OwnedItem, bank: number, workshop = false) {
   if (item.condition !== 'damaged' || item.position === 'jewelryBox') return undefined;
   const kettle = /чайник/i.test(item.name);
-  const price = kettle ? 500 : Math.max(300, Math.round(item.value * 0.25));
+  const standardPrice = kettle ? 500 : Math.max(300, Math.round(item.value * 0.25));
+  const price = workshop ? Math.round(standardPrice * 0.75) : standardPrice;
   const min = kettle ? 3600 : Math.round(item.estimate.max * 1.4);
   const max = kettle ? 5000 : Math.round(item.estimate.max * 1.9);
   return { price, estimate: { min, max }, available: bank >= price };
 }
 
-function itemView(item: OwnedItem, bank: number): GarageItemView {
+function itemView(item: OwnedItem, bank: number, workshop = false): GarageItemView {
   const { value: _value, lotNumber: _lot, baggageId: _bag, ...view } = item;
-  const repair = repairQuote(item, bank);
+  const repair = repairQuote(item, bank, workshop);
   return repair ? { ...view, repair } : view;
 }
 
@@ -173,6 +191,28 @@ export function storageUsage(items: readonly GarageItemView[], jewelry: boolean)
 }
 
 type CargoGame = Extract<Stage4State['game'], { phase: 'reveal' | 'baggageInventory' }>;
+
+export function hasTutorialDelivery(model: TransportState['model'], game: { lotNumber: number; lot: { sceneId: string } }): boolean {
+  return model === 'scooter' && game.lotNumber === 1 && game.lot.sceneId === 'tutorial';
+}
+
+function isTutorialDelivery(state: TransportProfile, game: CargoGame, item: GarageItemView): boolean {
+  return game.phase === 'reveal' && item.id === 'bicycle' && hasTutorialDelivery(transportFor(state).model, game);
+}
+
+export function transportLoad(state: TransportProfile, game: CargoGame, items: readonly GarageItemView[]): number {
+  return items.reduce((sum, item) => sum + (isTutorialDelivery(state, game, item) ? 0 : item.size), 0);
+}
+
+export function transportBlock(state: TransportProfile, game: CargoGame, item: GarageItemView, used: number): string | null {
+  const vehicle = vehicleFor(state);
+  if (isTutorialDelivery(state, game, item)) return null;
+  if (used + item.size > vehicle.capacity) return 'В транспорте нет места.';
+  if (state.transport && (vehicle.model === 'scooter' || vehicle.model === 'zhiguli') && requiresLongBed(item.name)) {
+    return 'Для длинномера нужен пикап или фургон.';
+  }
+  return null;
+}
 
 function baggageFind(item: RevealedFind): LotFind {
   return { ...item, condition: 'worn', hint: { text: 'Находка из забытого чемодана.', estimatedSalePrice: null } };
@@ -194,17 +234,18 @@ function cargoFor(state: Stage5State, game: CargoGame) {
   const selected = items.filter(({ id }) => state.cargo.includes(id));
   const revenue = [...contents.visibleFinds, ...contents.boxes.flatMap(({ contents: finds }) => finds)]
     .filter(({ id }) => game.soldItemIds.includes(id)).reduce((sum, item) => sum + item.salePrice, 0);
-  const reserved = occupied(selected);
+  const reserved = transportLoad(state, game, selected);
   const used = storageUsage([...state.items, ...selected], false);
   const jewelry = storageUsage([...state.items, ...selected], true);
   const transport = game.phase === 'reveal';
-  const vehicleLimit = capacityLimit(state.capacityUpgrades, 'car');
+  const vehicleLimit = vehicleFor(state).capacity;
   const roomLimit = capacityLimit(state.capacityUpgrades, 'garage');
   return {
     boxes, items, revenue, reserved, used, jewelry, transport, vehicleLimit, roomLimit,
     blocked(item: GarageItemView): string | null {
       if (state.cargo.includes(item.id)) return null;
-      if (transport && reserved + item.size > vehicleLimit) return 'В машине нет места.';
+      const reason = transport ? transportBlock(state, game, item, reserved) : null;
+      if (reason) return reason;
       if (item.position === 'jewelryBox') return jewelry + item.size > jewelryLimit ? 'В шкатулке нет места.' : null;
       return used + item.size > roomLimit ? 'В гараже нет места.' : null;
     },
@@ -320,7 +361,7 @@ export function settleSales(state: Stage5State, sales: readonly { item: OwnedIte
 }
 
 function repairItem(state: Stage5State, item: OwnedItem): Stage5State {
-  const quote = repairQuote(item, state.base.game.bank);
+  const quote = repairQuote(item, state.base.game.bank, state.workshop);
   if (!quote?.available) return state;
   const repaired = {
     ...item, condition: 'good' as const, estimate: quote.estimate,
@@ -338,10 +379,32 @@ function handleRoom(state: Stage5State, command: Stage5Command, boxed: readonly 
     case 'navigate':
       return command.room === state.room ? state : updateStage5(state, { room: command.room === 'auctions' ? null : command.room });
     case 'buyCapacity': {
+      if (command.target === 'car' && state.transport) return state;
+      if (command.target === 'shelves' && !state.capacityUpgrades.includes('garage')) return state;
       const upgrade = upgrades[command.target];
       const canBuyHere = state.room === 'garage' || (state.room === 'car' && command.target === 'car');
       if (!canBuyHere || !upgrade || state.capacityUpgrades.includes(command.target) || state.base.game.bank < upgrade.price) return state;
       return updateStage5(state, { capacityUpgrades: [...state.capacityUpgrades, command.target] }, state.base.game.bank - upgrade.price);
+    }
+    case 'buyHouse': {
+      const next = state.house === undefined ? 4 : state.house === 4 ? 5 : null;
+      if (state.room !== 'home' || !state.workshop || command.level !== next) return state;
+      const price = housePrices[command.level];
+      return state.base.game.bank >= price ? updateStage5(state, { house: command.level }, state.base.game.bank - price) : state;
+    }
+    case 'upgradeTransport': {
+      if (state.room !== 'car') return state;
+      const offer = transportOffers(transportFor(state)).find(({ id }) => id === command.upgrade);
+      if (!offer || state.base.game.bank < offer.price) return state;
+      const profile = state.base;
+      const game = profile.game;
+      if (profile.relationshipOpen || game.phase !== 'hub') return state;
+      if (offer.id === 'restoreZhiguli' && game.lotNumber === 0) return state;
+      const awarded = !game.assets.includes('car');
+      const paid = updateStage5(state, { transport: offer.next }, game.bank - offer.price, game.status + (awarded ? 5 : 0));
+      return awarded ? { ...paid, base: { ...profile, game: {
+        ...game, revision: paid.base.game.revision, bank: paid.base.game.bank, status: paid.base.game.status, assets: [...game.assets, 'car'],
+      } } } : paid;
     }
     case 'repairItem': {
       const item = state.items.find(({ id }) => id === command.itemId);
@@ -420,6 +483,7 @@ export function applyCommand(state: Stage5State, command: Stage5Command, boxed: 
   }
 
   if (state.room !== null) return handleRoom(state, command, boxed);
+  if (state.transport && command.type === 'spend' && command.offerId === 'car') return state;
   if (game.phase === 'hub' && !state.base.relationshipOpen && command.type === 'navigate' && command.room !== 'auctions') {
     return updateStage5(state, { room: command.room });
   }
@@ -453,6 +517,8 @@ export function applyCommand(state: Stage5State, command: Stage5Command, boxed: 
     case 'sortItem':
     case 'sortGarage':
     case 'buyCapacity':
+    case 'buyHouse':
+    case 'upgradeTransport':
     case 'repairItem':
     case 'counterOffer':
     case 'cancelListing':
@@ -461,7 +527,7 @@ export function applyCommand(state: Stage5State, command: Stage5Command, boxed: 
       return state;
   }
   const edition = command.type === 'enterAuction'
-    ? game.phase === 'hub' && game.lotNumber === 0 && game.bank < 3000 && command.tier === 'ordinary' ? 7 : 6
+    ? game.phase === 'hub' && game.lotNumber === 0 && (game.bank < 3000 || state.transport?.model === 'scooter') && command.tier === 'ordinary' ? 7 : 6
     : state.lotEdition;
   const base = applyBase(state.base, command, command.type === 'enterAuction'
     ? economyFor({ legacyLot: false, lotEdition: edition }) : economyFor(state));
@@ -474,17 +540,24 @@ export function applyCommand(state: Stage5State, command: Stage5Command, boxed: 
 export function getView(state: Stage5State): Stage5View {
   const game = state.base.game;
   const { bank, revision } = game;
-  if (state.opening !== null) return { phase: 'opening', bank, revision, frame: state.opening };
+  if (state.opening !== null) return { phase: 'opening', bank, revision, frame: state.opening, vehicle: vehicleFor(state) };
   if (state.room !== null) {
     return {
-      phase: state.room, bank, revision, items: state.items.map((item) => itemView(item, bank)), listings: state.listings,
+      phase: state.room, bank, revision, items: state.items.map((item) => itemView(item, bank, state.workshop)), listings: state.listings,
       unread: state.listings.flatMap(marketOffers).filter(({ unread }) => unread).length,
       reviews: state.reviews ?? [],
       garage: { used: storageUsage(state.items, false), limit: capacityLimit(state.capacityUpgrades, 'garage') },
-      vehicle: vehicleFor(state.capacityUpgrades),
+      vehicle: vehicleFor(state),
+      ...(state.room === 'car' ? { transportOffers: transportOffers(transportFor(state)).map(({ next, ...offer }) => ({
+        ...offer, capacity: describeVehicle(next).capacity, auctions: hasBonusAuction(next) ? 4 as const : 3 as const,
+        blocked: offer.id === 'restoreZhiguli' && 'lotNumber' in game && game.lotNumber === 0 ? 'Сначала съезди на первые торги на скутере.' : null,
+      })) } : {}),
       homeImproved: game.assets.includes('home'),
+      ...(state.workshop ? { workshop: true } as const : {}),
+      ...(state.house ? { house: state.house } : {}),
       jewelry: { used: storageUsage(state.items, true), limit: jewelryLimit },
-      upgrades: (['garage', 'car'] as const).filter((target) => !state.capacityUpgrades.includes(target))
+      upgrades: (['garage', 'car', 'shelves'] as const).filter((target) => !state.capacityUpgrades.includes(target) &&
+        (target !== 'car' || !state.transport) && (target !== 'shelves' || state.capacityUpgrades.includes('garage')))
         .map((target) => ({ target, ...upgrades[target], available: bank >= upgrades[target].price })),
       lastSale: state.lastSale,
       lastDeal: state.lastDeal, deals: state.deals,
@@ -501,10 +574,12 @@ export function getView(state: Stage5State): Stage5View {
       } as const : {}),
       purchasePrice: game.purchasePrice, revenue: cargo.revenue,
       car: { used: cargo.reserved, limit: cargo.vehicleLimit }, garage: { used: cargo.used, limit: cargo.roomLimit },
+      vehicle: vehicleFor(state),
       jewelry: { used: cargo.jewelry, limit: jewelryLimit },
       boxes: cargo.boxes.map(({ id, name }) => ({ id, name })),
       items: cargo.items.map((item) => ({
-        ...itemView(item, bank), selected: state.cargo.includes(item.id), blocked: cargo.blocked(item),
+        ...itemView(item, bank, state.workshop), selected: state.cargo.includes(item.id), blocked: cargo.blocked(item),
+        ...(isTutorialDelivery(state, game, item) ? { tutorialDelivery: true } as const : {}),
       })),
     };
   }
@@ -518,5 +593,5 @@ export function getView(state: Stage5State): Stage5View {
   if (view.phase === 'prologue' || view.phase === 'reveal' || view.phase === 'recovery') {
     throw new Error('Некорректная фаза Stage 5.');
   }
-  return view;
+  return view.phase === 'hub' && state.transport ? { ...view, offers: view.offers.filter(({ id }) => id !== 'car') } : view;
 }

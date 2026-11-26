@@ -5,6 +5,8 @@ import { actionButton, bankFor, element, replaceScreen, rubles } from './dom';
 import { mountStage5 } from './mount';
 import { relationshipGoalFor } from './relationship';
 import { mountPaidVisit } from './stage7-trip';
+import { vehicleName, vehiclePicture } from './vehicle';
+import { mountLife } from './life';
 import './stage7.css';
 
 const primary = 'garage__button garage__button--primary';
@@ -76,7 +78,7 @@ function familyDatePanel(view: Stage7View, dispatch: Stage7Dispatch): HTMLElemen
   const panel = element('section', 'garage__panel stage7__box');
   panel.setAttribute('aria-label', 'Семейная дата');
   const affection = date.affection > 0 ? `+${date.affection}` : date.affection < 0 ? '−1' : '0';
-  panel.append(element('h2', 'garage__heading', familyOccasion), element('p', 'hub__detail', `Отношение · ${affection}`));
+  panel.append(element('h2', 'garage__heading', familyOccasion), element('p', 'hub__detail', `Реакция на семейную дату · ${affection}`));
   if (date.outcome === 'pending') {
     const daysAway = date.day - calendar.day;
     const when = daysAway === 0 ? 'Сегодня' : daysAway === 1 ? 'Завтра, в воскресенье' : 'В воскресенье';
@@ -107,6 +109,7 @@ function familyDatePanel(view: Stage7View, dispatch: Stage7Dispatch): HTMLElemen
 export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage7Dispatch, animateVisit = false,
   watchJobAd?: (revision: number) => void): void {
   const { screen, calendar, flea, paidVisit } = view;
+  const lifeFocus = root.contains(document.activeElement) ? (document.activeElement as HTMLElement)?.dataset.lifeFocus : undefined;
   const expectedRevision = screen.revision;
   if (screen.phase === 'job' && !view.jobUnlocked) {
     const page = element('section', 'garage');
@@ -127,7 +130,8 @@ export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage
   if (paidVisit?.open) {
     mountPaidVisit(root, paidVisit.record, {
       bank: screen.bank, revision: screen.revision, calendar, relationship: screen.phase === 'relationship',
-      vehicle: view.vehicle.model,
+      vehicle: view.vehicle,
+      ...(view.personalCar ? { personalCar: view.personalCar } : {}),
     }, dispatch, animateVisit);
     return;
   }
@@ -156,6 +160,20 @@ export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage
   const boughtNow = screen.phase === 'cargo' && !screen.baggage
     && root.firstElementChild?.getAttribute('data-auction-lot') === String(screen.lotNumber);
   mountStage5(root, screen, dispatch, calendar, { data: flea, dispatch });
+  if (view.auctionTransport) {
+    const { garageFree, tutorialDelivery, longLoad } = view.auctionTransport;
+    const transport = element('div', 'auction-transport');
+    transport.append(vehiclePicture(view.vehicle.model, view.vehicle.trailer));
+    const notes = element('div', '');
+    notes.append(element('strong', '', vehicleName[view.vehicle.model]),
+      element('p', '', `Мест в транспорте: ${view.vehicle.capacity} · свободно в гараже: ${garageFree}`));
+    if (tutorialDelivery) notes.append(element('p', '', garageFree >= 4
+      ? 'Для велосипеда доступен бесплатный вывоз в гараж.'
+      : 'Бесплатный вывоз велосипеда требует 4 свободных мест в домашнем гараже.'));
+    if (longLoad) notes.append(element('p', '', `Для находки «${longLoad}» понадобится пикап или фургон.`));
+    transport.append(notes);
+    root.querySelector('.auction-layout > .garage__panel')?.append(transport);
+  }
   if (boughtNow) {
     const announcer = element('div', 'auction-call');
     announcer.setAttribute('role', 'status');
@@ -178,6 +196,8 @@ export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage
     element('p', 'hub__detail', `Выезды до вечера · ${calendar.remainingOutings}`),
   );
   panel.append(summary);
+  if (calendar.bonusAuction) summary.append(element('p', 'hub__detail', calendar.bonusAuction === 'available'
+    ? 'Доступен вечерний аукцион' : 'Вечерний аукцион использован'));
   if (screen.phase === 'home') {
     const { weekday, daysAway } = calendar.nextMarket;
     const when = daysAway === 0 ? 'сегодня утром' : `${weekday.toLowerCase()}, утром`;
@@ -193,7 +213,7 @@ export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage
     }
   }
   const scene = root.querySelector(':scope > .garage');
-  if (['garage', 'home', 'inspection', 'bidding'].includes(screen.phase)) scene?.append(panel);
+  if (['garage', 'home', 'inspection', 'bidding', 'relationship'].includes(screen.phase)) scene?.append(panel);
   else scene?.querySelector('.garage__header')?.after(panel);
   if (view.canParkLot && screen.phase === 'cargo') {
     const action = actionButton('Отложить разбор и вернуться к торгам', 'garage__button',
@@ -216,10 +236,12 @@ export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage
     });
     rest.dataset.screenFocus = 'rest';
     const notice = element('section', 'garage__panel stage7__rest');
-    notice.append(element('h2', '', 'Пора отдохнуть'),
-      element('p', '', 'Герой устал. После сна снова будут доступны три выезда.'), rest);
+    const extraAuction = calendar.bonusAuction === 'available';
+    notice.append(element('h2', '', extraAuction ? 'Вечерний аукцион или отдых' : 'Пора отдохнуть'),
+      element('p', '', extraAuction ? 'На улучшенном пикапе можно успеть на ещё одни торги.'
+        : 'Герой устал. После сна снова будут доступны выезды.'), rest);
     const auctionLink = scene?.querySelector('[data-screen-focus="auctions"]');
-    if (auctionLink instanceof HTMLButtonElement) {
+    if (!extraAuction && auctionLink instanceof HTMLButtonElement) {
       auctionLink.disabled = true;
       auctionLink.textContent = 'Торги завтра';
     }
@@ -231,4 +253,5 @@ export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage
   if (screen.phase === 'garage' || screen.phase === 'cargo' && screen.baggage) {
     panel.after(boxContents(view, dispatch, screen.phase === 'garage'));
   }
+  mountLife(root, view, dispatch, lifeFocus);
 }

@@ -24,6 +24,10 @@ export function isVenue(offer: unknown): offer is VisitVenue {
   return typeof offer === 'string' && Object.hasOwn(offers, offer) && offer !== 'home' && offer !== 'car';
 }
 
+export function isCityVisit(venue: VisitVenue | undefined): boolean {
+  return venue === 'cinema' || venue === 'restaurant' || venue === 'theater';
+}
+
 export function relationshipVenue(action: Stage5Command['type']): 'cinema' | 'restaurant' | null {
   if (action === 'inviteToCinema') return 'cinema';
   return action === 'inviteToDinner' ? 'restaurant' : null;

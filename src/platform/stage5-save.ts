@@ -1,6 +1,8 @@
 import { jobStations, prologueFrames, roomNames } from '../game/stage5-contract';
 import type { Stage5Command } from '../game/stage5-contract';
-import { applyCommand, capacityLimit, economyFor, jewelryLimit, migrateStage4, openCargoItems, stage6Defaults, storageUsage } from '../game/stage5-engine';
+import { applyCommand, capacityLimit, economyFor, jewelryLimit, migrateStage4, openCargoItems, stage6Defaults, storageUsage, transportBlock, transportLoad, vehicleFor } from '../game/stage5-engine';
+import { transportModels } from '../game/transport';
+import type { TransportState } from '../game/transport';
 import type { OwnedItem, Stage5State } from '../game/stage5-engine';
 import { areIds, exactKeys, isMoney, isRecord, loadSnapshot, writeSnapshot } from './save';
 import type { LoadResult, SavedCommandResult, SaveResult, SaveStorage } from './save';
@@ -42,22 +44,37 @@ function validListing(value: unknown, items: readonly OwnedItem[]) {
     new Set(all.map(thread => thread.buyer)).size === all.length;
 }
 
+function isTransport(value: unknown): value is TransportState {
+  if (!isRecord(value) || !transportModels.some(model => model === value.model)) return false;
+  return value.model === 'heavy'
+    ? exactKeys(value, ['model', 'engine', 'trailer']) &&
+      [0, 1, 2].some(level => level === value.engine) && [0, 1, 2].some(level => level === value.trailer)
+    : exactKeys(value, ['model']);
+}
+
 export function isStage5State(value: unknown, boxed: readonly OwnedItem[] = [], lastAuctionNumber?: number): value is Stage5State {
   if (!isRecord(value) || !exactKeys(value, [
     'base', 'opening', 'room', 'legacyLot', 'items', 'cargo', 'listings', 'deals', 'lastSale', 'lastDeal', 'job', 'jobIncorrect',
     'lotEdition', 'capacityUpgrades', 'baggageArrived', ...(Object.hasOwn(value, 'reviews') ? ['reviews'] : []),
+    ...(Object.hasOwn(value, 'transport') ? ['transport'] : []),
+    ...(Object.hasOwn(value, 'workshop') ? ['workshop'] : []),
+    ...(Object.hasOwn(value, 'house') ? ['house'] : []),
   ])) return false;
   const reviews = value.reviews;
   if (reviews !== undefined && (!Array.isArray(reviews) || reviews.length > 100 || !reviews.every(review =>
     isRecord(review) && typeof review.buyer === 'string' && typeof review.item === 'string' &&
     typeof review.text === 'string' && [1, 2, 3, 4, 5].some(stars => stars === review.stars)))) return false;
   const { base, opening, room, legacyLot, items, cargo, listings, deals, lastSale, lastDeal, job, jobIncorrect,
-    lotEdition, capacityUpgrades, baggageArrived } = value;
+    lotEdition, capacityUpgrades, baggageArrived, transport } = value;
   if (typeof legacyLot !== 'boolean' || (lotEdition !== 5 && lotEdition !== 6 && lotEdition !== 7) ||
-      typeof baggageArrived !== 'boolean' || !areIds(capacityUpgrades, ['garage', 'car']) ||
+      typeof baggageArrived !== 'boolean' || !areIds(capacityUpgrades, ['garage', 'car', 'shelves']) ||
+      (transport !== undefined && !isTransport(transport)) ||
       !isStage4State(base, economyFor({ legacyLot, lotEdition }), true)) return false;
   const game = base.game;
   if (game.phase === 'prologue') return false;
+  if (value.workshop !== undefined && (value.workshop !== true || !game.assets.includes('home'))) return false;
+  if (value.house !== undefined && (value.workshop !== true || (value.house !== 4 && value.house !== 5))) return false;
+  if (capacityUpgrades.includes('shelves') && !capacityUpgrades.includes('garage')) return false;
   const latestLot = lastAuctionNumber ?? game.lotNumber;
   if (baggageArrived && game.phase !== 'baggageInventory') return false;
   if (opening !== null && (!prologueFrames.some((frame) => frame === opening) || game.lotNumber !== 0 || room !== null)) return false;
@@ -94,7 +111,11 @@ export function isStage5State(value: unknown, boxed: readonly OwnedItem[] = [], 
   if (!areIds(cargo, available.map(({ id }) => id))) return false;
   const selected = available.filter(({ id }) => cargo.includes(id));
   const stored = [...items, ...selected];
-  return (game.phase !== 'reveal' || selected.reduce((sum, item) => sum + item.size, 0) <= capacityLimit(capacityUpgrades, 'car')) &&
+  const vehicle = { ...(transport ? { transport } : {}), capacityUpgrades };
+  const shippable = game.phase !== 'reveal' ||
+    (transportLoad(vehicle, game, selected) <= vehicleFor(vehicle).capacity &&
+      selected.every(item => !transportBlock(vehicle, game, item, 0)));
+  return shippable &&
     storageUsage(stored, false) <= capacityLimit(capacityUpgrades, 'garage') &&
     storageUsage(stored, true) <= jewelryLimit;
 }

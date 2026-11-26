@@ -3,13 +3,14 @@ import { outingNames } from '../game/stage7-calendar';
 import type { CalendarView } from '../game/stage7-calendar';
 import type { VisitRecord, VisitVenue } from '../game/stage7-events';
 import type { VehicleView } from '../game/stage5-contract';
+import type { PersonalCar } from '../game/personal-cars';
 import type { Stage7Dispatch } from '../game/stage7-engine';
 import cinema from './assets/stage7-visit-cinema.jpg';
 import diner from './assets/stage7-visit-diner.jpg';
 import restaurant from './assets/stage7-visit-restaurant.jpg';
 import theater from './assets/stage7-visit-theater.jpg';
 import { actionButton, addFact, bankFor, element, replaceScreen, rubles } from './dom';
-import { vehiclePicture } from './vehicle';
+import { personalCarPicture, vehiclePicture } from './vehicle';
 import './stage7-trip.css';
 
 const duration = 5000;
@@ -26,7 +27,7 @@ const photos = {
 export function mountPaidVisit(
   root: HTMLElement,
   record: VisitRecord,
-  scene: { bank: number; revision: number; calendar: CalendarView; relationship: boolean; vehicle: VehicleView['model'] },
+  scene: { bank: number; revision: number; calendar: CalendarView; relationship: boolean; vehicle: VehicleView; personalCar?: PersonalCar },
   dispatch: Stage7Dispatch,
   animate: boolean,
 ): void {
@@ -82,8 +83,8 @@ export function mountPaidVisit(
   backdrop.style.setProperty('--trip-duration', `${duration}ms`);
   const actor = element('div', 'stage7__traveler');
   actor.append(element('span', 'stage7__traveler-legs'));
-  const car = vehiclePicture(scene.vehicle);
-  car.className = 'stage7__travel-car';
+  const car = scene.personalCar ? personalCarPicture(scene.personalCar) : vehiclePicture(scene.vehicle.model, scene.vehicle.trailer);
+  car.classList.add('stage7__travel-car');
   backdrop.append(actor, car, element('div', 'stage7__travel-dusk'));
 
   const timer = window.setTimeout(finish, duration);

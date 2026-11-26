@@ -24,6 +24,7 @@ export interface CalendarView extends CalendarState {
   readonly weekday: Weekday;
   readonly outing: string | null;
   readonly remainingOutings: number;
+  readonly bonusAuction?: 'available' | 'used';
   readonly nextMarket: { readonly weekday: 'Суббота' | 'Воскресенье'; readonly daysAway: number };
 }
 

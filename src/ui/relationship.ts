@@ -76,13 +76,12 @@ export function mountRelationship(root: HTMLElement, view: RelationshipView, dis
   header.append(title, bankFor(view.bank));
 
   const layout = element('div', 'relationship__layout');
-  if ('image' in scene) {
-    const art = element('img', 'relationship__image');
-    art.src = scene.image;
-    art.alt = scene.alt;
-    layout.classList.add('relationship__layout--illustrated');
-    layout.append(art);
-  }
+  const location = 'image' in scene ? scene : scenes.unmet;
+  const art = element('img', 'relationship__image');
+  art.src = location.image;
+  art.alt = location.alt;
+  layout.classList.add('relationship__layout--illustrated');
+  layout.append(art);
 
   const panel = element('section', 'garage__panel relationship__panel');
   panel.append(element('p', 'hub__detail', `Рейтинг · ${view.status} очков`));
@@ -99,8 +98,10 @@ export function mountRelationship(root: HTMLElement, view: RelationshipView, dis
       ? `Встреча займёт ${visit.outing}.` : 'Поехать на встречу можно утром.'));
     if (visit?.outing !== null && goal.canProceed && view.allowedActions.includes(goal.action)) {
       const price = goal.price === null ? '' : ` за ${rubles(goal.price)}`;
-      controls.append(actionButton(actions[goal.action] + price, 'garage__button garage__button--primary',
-        () => dispatch({ type: goal.action, expectedRevision: view.revision })));
+      const action = actionButton(actions[goal.action] + price, 'garage__button garage__button--primary',
+        () => dispatch({ type: goal.action, expectedRevision: view.revision }));
+      action.dataset.relationshipAction = goal.action;
+      controls.append(action);
     }
   }
   if (view.allowedActions.includes('returnToHub')) {

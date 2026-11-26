@@ -3,7 +3,8 @@ import { applyCommand as actStage2, newGame as newStage2 } from '../game/stage2-
 import { migrateStage2 } from '../game/stage3-engine';
 import { applyCommand as actStage4, migrateStage3 } from '../game/stage4-engine';
 import { rubleEconomy } from '../game/stage5-economy';
-import { getView, newGame } from '../game/stage7-engine';
+import { getView, migrateStage5, newGame } from '../game/stage7-engine';
+import { newGame as newStage5 } from '../game/stage5-engine';
 import type { Stage7Command, Stage7State } from '../game/stage7-engine';
 import { BACKUP_KEY, SAVE_KEY, save as saveV1 } from './save';
 import type { SaveStorage } from './save';
@@ -43,8 +44,8 @@ function play(storage: SaveStorage, initial: Stage7State, ...actions: Action[]):
   return state;
 }
 
-function setup(storage: SaveStorage, bank = 0, status = 0): Stage7State {
-  const starter = play(storage, newGame(64), { type: 'skipStory' });
+function setup(storage: SaveStorage, bank = 0, status = 0, initial = newGame(64)): Stage7State {
+  const starter = play(storage, initial, { type: 'skipStory' });
   const { base } = starter;
   const profile = base.base;
   if (profile.relationshipOpen || profile.game.phase !== 'hub') throw new Error('Ожидается стартовый гараж');
@@ -106,7 +107,7 @@ it('читает v1–v3 и переводит деньги ровно один 
 it('сохраняет генератор открытого лота v4 до завершения выезда', () => {
   const storage = memory();
   const active = play(storage, setup(storage, 9000), hub, enter, { type: 'pass' }, { type: 'nextLot' }, hub);
-  const { lotEdition, capacityUpgrades, baggageArrived, ...legacy } = active.base;
+  const { capacityUpgrades, baggageArrived, lotEdition: _edition, transport: _transport, ...legacy } = active.base;
   const game = actStage4(legacy.base, { type: 'enterAuction', tier: 'ordinary', expectedRevision: getView(active).screen.revision }, rubleEconomy);
   storage.setItem(SAVE_KEY, JSON.stringify({ version: 4, state: { ...legacy, base: game } }));
   const migrated = loadCurrent(storage);
@@ -114,13 +115,13 @@ it('сохраняет генератор открытого лота v4 до з
   expect(migrated.base.lotEdition).toBe(5);
   expect(migrated.calendar).toEqual({ day: 1, period: 'morning' });
   const next = play(storage, migrated, { type: 'pass' }, { type: 'nextLot' }, hub, enter);
-  expect(next.base.lotEdition).toBe(lotEdition);
+  expect(next.base.lotEdition).toBe(6);
   expect(next.calendar.period).toBe('afternoon');
 });
 
 it('переносит профиль v5 с улучшением, откликом, открытой коробкой и выбранным грузом', () => {
   const storage = memory();
-  const garage = setup(storage, 72000, 18);
+  const garage = setup(storage, 72000, 18, migrateStage5(newStage5(64)));
   const active = play(storage, garage, { type: 'buyCapacity', target: 'car' }, hub, { type: 'spend', offerId: 'home' },
     { type: 'openRelationship' }, { type: 'meetNeighbor' }, { type: 'returnToHub' },
     { type: 'navigate', room: 'market' }, { type: 'publish', itemId: 'home-lamp', price: 750 }, { type: 'waitForBuyer' });

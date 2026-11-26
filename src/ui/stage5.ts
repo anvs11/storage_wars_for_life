@@ -9,8 +9,7 @@ import { placeProp, sceneSprite, stackedBoxes } from './scene-sprites';
 import './object-scenes.css';
 import bar from './assets/stage5-bar.jpg';
 import garage from './assets/stage5-garage.jpg';
-import yard from './assets/stage5-yard.jpg';
-import renovatedYard from './assets/yard-renovated.jpg';
+import rack from './assets/garage-rack.webp';
 import courier from './assets/stage6-courier.jpg';
 import caseClosed from './assets/stage6-suitcase-closed.png';
 import caseOpen from './assets/stage6-suitcase-open.png';
@@ -19,7 +18,9 @@ import travelSpeaker from './assets/stage6-travel-speaker.png';
 import travelCamera from './assets/stage6-travel-camera.png';
 import { actionButton, addFact, bankFor, element, replaceScreen, rubles } from './dom';
 import { garageScenes } from './garage-scenes';
-import { vehicleName, vehiclePicture } from './vehicle';
+import { personalCarPicture, vehicleName, vehiclePicture } from './vehicle';
+import { yards } from './yards';
+import { trailerNames } from '../game/transport';
 import { receiptFacts } from './inventory';
 import './stage5.css';
 
@@ -35,7 +36,7 @@ const frames = {
   keys: { title: 'Теперь здесь твой дом', copy: 'Теперь у тебя ключи от дома, гаража и бабушкиных Жигулей. В гараже остались вещи, которые можно продать, чтобы собрать деньги на торги.', image: keys, alt: 'Нотариус передаёт связку ключей. Позади дом, гараж и машина.', next: 'Войти в гараж' },
 } as const;
 
-const roomLabels = { home: 'Дом', garage: 'Мой гараж', market: 'Доска объявлений', inbox: 'Сообщения', car: 'Моя машина' } as const;
+const roomLabels = { home: 'Дом', garage: 'Мой гараж', market: 'Доска объявлений', inbox: 'Сообщения', car: 'Мой транспорт' } as const;
 const conditions = { good: 'Хорошее', worn: 'Со следами износа', damaged: 'Требует ремонта' } as const;
 const buttonClass = 'garage__button';
 const primaryClass = buttonClass + ' garage__button--primary';
@@ -112,6 +113,9 @@ export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5
     panel.append(element('p', 'stage5__copy', frame.copy),
       control(frame.next, { type: 'storyNext' }, 'next', true),
       control('Пропустить пролог', { type: 'skipStory' }, 'skip'));
+    if (view.frame === 'keys' && view.vehicle?.model === 'scooter') {
+      panel.prepend(element('p', 'stage5__copy', 'Старые Жигули нужно поставить на ход. На первые торги поедешь на своём курьерском электроскутере.'));
+    }
     layout.append(art(frame.image, frame.alt), panel);
     screen.append(layout);
   } else if (view.phase === 'baggageArrival') {
@@ -158,7 +162,8 @@ export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5
         heading.tabIndex = -1;
         const preview = itemPicture(item);
         const move = control(item.selected ? view.baggage ? 'Оставить в чемодане' : 'Убрать из машины'
-          : view.baggage ? 'В гараж' : 'Забрать домой', { type: 'toggleCargo', itemId: item.id }, `cargo:${item.id}`, !item.selected);
+          : view.baggage ? 'В гараж' : item.tutorialDelivery ? 'Отправить в гараж бесплатно' : 'Забрать домой',
+          { type: 'toggleCargo', itemId: item.id }, `cargo:${item.id}`, !item.selected);
         move.disabled = item.blocked !== null || packed(item.id);
         move.setAttribute('aria-label', `${move.textContent}: ${item.name}`);
         const leave = item.selected ? 'Назад к вещам' : view.baggage ? 'Оставить в чемодане' : 'Оставить здесь';
@@ -170,7 +175,9 @@ export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5
           details.append(showcase);
         }
         details.append(element('p', 'hub__detail', item.clue), itemFacts(item));
-        if (item.selected) details.append(element('p', 'cargo-picked', view.baggage ? 'Выбрано для гаража' : 'Уже в машине'));
+        if (item.tutorialDelivery) details.append(element('p', 'hub__detail', 'Учебный вывоз не занимает место в сумке. В домашнем гараже велосипед займёт 4 места.'));
+        if (item.selected) details.append(element('p', 'cargo-picked', item.tutorialDelivery ? 'Доставка выбрана'
+          : view.baggage ? 'Выбрано для гаража' : 'Место в транспорте занято'));
         if (item.blocked) details.append(element('p', 'hub__reason', item.blocked));
         const actions = element('div', 'garage__controls');
         actions.append(move, dismiss);
@@ -215,7 +222,10 @@ export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5
     left.append(close, costs);
     if (otherFinds.childElementCount) left.append(otherFinds);
     const panel = element('section', 'stage5__stack');
-    if (!view.baggage) panel.append(element('p', 'stage5__capacity', capacityLabel('Машина', view.car)));
+    if (!view.baggage) panel.append(element('p', 'stage5__capacity', capacityLabel(view.vehicle ? vehicleName[view.vehicle.model] : 'Транспорт', view.car)));
+    if (view.items.some(item => item.selected && item.tutorialDelivery)) {
+      panel.append(element('p', 'hub__detail', 'Для велосипеда оформлен бесплатный вывоз.'));
+    }
     panel.append(element('p', 'stage5__capacity', capacityLabel('Гараж дома с учётом выбора', view.garage)));
     if (view.jewelry) panel.append(element('p', 'stage5__capacity', capacityLabel('Шкатулка', view.jewelry)));
     screen.append(dialog);
@@ -282,16 +292,23 @@ function mountRoomContents(screen: HTMLElement, view: RoomView, button: Control,
   screen.append(navigation);
 
   if (view.phase === 'home') {
-    const photo = art(view.homeImproved ? renovatedYard : yard,
-      view.homeImproved ? 'Отремонтированный дом и гараж.' : 'Старый дом и соседний гараж.');
+    const level = view.house ?? (view.workshop ? 3 : view.homeImproved ? 2 : 1);
+    const { image, alt } = yards[level];
+    const photo = art(image, alt);
     photo.classList.add('stage5__home');
     const yardScene = element('div', 'yard-scene');
+    yardScene.dataset.yardLevel = String(level);
     yardScene.append(photo);
     for (const [label, room, selector] of [
       ['Дом', 'auctions', '[data-home-offer]'],
       ['Гараж', 'garage', '.shelf-scene'],
     ] as const) {
       const hotspot = actionButton(label, 'yard-pin', () => {
+        const homeProjects = label === 'Дом' ? screen.querySelector<HTMLElement>('[data-home-projects]') : null;
+        if (homeProjects) {
+          homeProjects.focus();
+          return;
+        }
         send({ type: 'navigate', room });
         const destination = document.querySelector<HTMLElement>(selector);
         if (destination instanceof HTMLDetailsElement) destination.open = true;
@@ -302,31 +319,57 @@ function mountRoomContents(screen: HTMLElement, view: RoomView, button: Control,
       });
       yardScene.append(hotspot);
     }
+    const model = view.vehicle?.model ?? 'zhiguli';
     const car = button('', { type: 'navigate', room: 'car' }, 'yard-car');
     car.className = 'yard-car';
-    car.setAttribute('aria-label', 'Осмотреть машину');
-    car.append(vehiclePicture(view.vehicle?.model ?? 'zhiguli'), element('span', '', 'Машина'));
+    car.dataset.workCar = model;
+    car.setAttribute('aria-label', `Осмотреть транспорт: ${vehicleName[model]}`);
+    car.append(vehiclePicture(model, view.vehicle?.trailer), element('span', '', model === 'scooter' ? 'Скутер' : 'Рабочая'));
     yardScene.append(car);
+    if (view.personalCar) {
+      const personal = actionButton('', 'yard-car yard-car--personal', () => {
+        const destination = screen.querySelector<HTMLDetailsElement>('[data-personal-garage]');
+        if (destination) {
+          destination.open = true;
+          destination.querySelector('summary')?.focus();
+        }
+      });
+      const picture = personalCarPicture(view.personalCar);
+      personal.dataset.personalCar = view.personalCar;
+      personal.setAttribute('aria-label', `Личная машина: ${picture.alt}`);
+      personal.append(picture, element('span', '', 'Личная'));
+      yardScene.append(personal);
+    } else if (model === 'scooter') {
+      const sedan = button('', { type: 'navigate', room: 'car' }, 'yard-restoration');
+      sedan.className = 'yard-car yard-car--restore';
+      sedan.setAttribute('aria-label', 'Жигули ждут ремонта. Посмотреть стоимость');
+      sedan.append(vehiclePicture('zhiguli'), element('span', '', 'Жигули'));
+      yardScene.append(sedan);
+    }
     navigation.before(yardScene);
   }
   if (view.phase === 'garage') renderGarage(screen, view, button, send, pack);
   if (view.phase === 'car' && view.vehicle) {
     const layout = element('div', 'stage5__layout vehicle-layout');
     const picture = element('div', 'vehicle-display');
-    picture.append(vehiclePicture(view.vehicle.model));
+    picture.append(vehiclePicture(view.vehicle.model, view.vehicle.trailer));
     const panel = element('section', 'garage__panel');
     const facts = element('dl', 'garage__facts');
-    addFact(facts, 'Машина', vehicleName[view.vehicle.model]);
+    addFact(facts, 'Транспорт', vehicleName[view.vehicle.model]);
     addFact(facts, 'Мест для груза', String(view.vehicle.capacity));
+    if (view.vehicle.trailer !== undefined) addFact(facts, 'Прицеп', trailerNames[view.vehicle.trailer]);
     panel.append(facts);
-    const upgrade = view.upgrades?.find(({ target }) => target === 'car');
-    if (upgrade) {
-      panel.append(element('h2', 'garage__heading', 'Вместительный фургон'),
-        element('p', 'hub__detail', `Число мест для груза · ${upgrade.current} → ${upgrade.next}`));
-      const buy = button(`Купить за ${rubles(upgrade.price)}`, { type: 'buyCapacity', target: 'car' }, 'upgrade:car', true);
-      buy.disabled = !upgrade.available;
-      if (!upgrade.available) panel.append(element('p', 'hub__reason', `Не хватает ${rubles(upgrade.price - view.bank)}.`));
-      panel.append(buy);
+    for (const offer of view.transportOffers ?? []) {
+      const section = element('section', 'vehicle-upgrade');
+      const remainder = view.bank - offer.price;
+      section.append(element('h2', 'garage__heading', offer.label),
+        element('p', 'hub__detail', `Мест для груза: ${offer.capacity} · до ${offer.auctions} аукционов в день`),
+        element('p', 'hub__detail', remainder < 0 ? `Не хватает ${rubles(-remainder)}` : `Останется ${rubles(remainder)}`));
+      if (offer.blocked) section.append(element('p', 'hub__reason', offer.blocked));
+      const buy = button(`Подтвердить за ${rubles(offer.price)}`, { type: 'upgradeTransport', upgrade: offer.id }, `upgrade:${offer.id}`, true);
+      buy.disabled = remainder < 0 || offer.blocked !== null;
+      section.append(buy);
+      panel.append(section);
     }
     panel.append(button('Во двор', { type: 'navigate', room: 'home' }, 'yard-car'));
     layout.append(picture, panel);
@@ -351,18 +394,24 @@ function mountRoomContents(screen: HTMLElement, view: RoomView, button: Control,
 function renderGarage(screen: HTMLElement, view: RoomView, button: Control, send: (action: Action) => void, pack?: (item: GarageItemView) => HTMLElement | null): void {
   screen.append(element('p', 'stage5__capacity', capacityLabel('Гараж', view.garage)));
   if (view.jewelry) screen.append(element('p', 'stage5__capacity', capacityLabel('Шкатулка', view.jewelry)));
-  const upgrade = view.upgrades?.find(({ target }) => target === 'garage');
+  const upgrade = view.upgrades?.find(({ target }) => target === 'garage' || target === 'shelves');
   if (upgrade) {
     const details = element('details', 'garage__panel stage5__confirm');
-    const buy = button(`Подтвердить за ${rubles(upgrade.price)}`, { type: 'buyCapacity', target: 'garage' }, 'upgrade:garage', true);
+    const buy = button(`Подтвердить за ${rubles(upgrade.price)}`, { type: 'buyCapacity', target: upgrade.target }, `upgrade:${upgrade.target}`, true);
     buy.disabled = !upgrade.available;
-    details.append(element('summary', '', 'Расширить гараж'), element('p', 'hub__detail',
+    details.append(element('summary', '', upgrade.target === 'shelves' ? 'Поставить второй стеллаж' : 'Поставить стеллаж'), element('p', 'hub__detail',
       `${upgrade.current} → ${upgrade.next} мест · ${rubles(upgrade.price)}`), buy);
     screen.append(details);
   }
   const scene = element('section', 'shelf-scene');
   scene.style.backgroundImage = `linear-gradient(0deg, #18160eb0, transparent), url("${garage}")`;
   scene.setAttribute('aria-label', 'Вещи в гараже');
+  if (view.garage.limit >= 16) {
+    const racks = element('div', 'garage-racks');
+    racks.append(art(rack, 'Дополнительный стеллаж'));
+    if (view.garage.limit >= 24) racks.append(art(rack, 'Второй дополнительный стеллаж'));
+    scene.append(racks);
+  }
   const dialog = element('dialog', 'object-dialog');
   dialog.setAttribute('aria-labelledby', 'owned-item-title');
   const details = element('section', 'garage__panel');
@@ -473,6 +522,7 @@ function renderMarket(screen: HTMLElement, view: RoomView, button: Control, send
       if (!item) continue;
       for (const offer of marketOffers(listing)) {
         const card = element('details', 'garage__panel market-thread');
+        card.dataset.saleItem = item.id;
         if (!offer.closed) card.dataset.activeOffer = '';
         const threadId = offer.id.split('@')[0]!;
         card.dataset.thread = threadId;

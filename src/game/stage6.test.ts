@@ -37,7 +37,8 @@ function reload(state: Stage5State): Stage5State {
 it('покупает вместимость один раз, сохраняет её и позволяет взять обе учебные находки', () => {
   const initial = garage();
   const upgraded = reload(run(initial, { type: 'buyCapacity', target: 'garage' }, { type: 'buyCapacity', target: 'car' }));
-  expect(getView(upgraded)).toMatchObject({ bank: 21000, garage: { limit: 16 }, upgrades: [] });
+  expect(getView(upgraded)).toMatchObject({ bank: 21000, garage: { limit: 16 },
+    upgrades: [{ target: 'shelves', current: 16, next: 24, available: false }] });
   expect(send(upgraded, { type: 'buyCapacity', target: 'car' })).toBe(upgraded);
   const cargo = run(upgraded, { type: 'navigate', room: 'auctions' }, { type: 'enterAuction', tier: 'ordinary' },
     { type: 'bid' }, { type: 'bid' }, { type: 'openBox', boxId: 'box' },

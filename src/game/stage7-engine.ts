@@ -2,14 +2,19 @@ import { finishOuting, getCalendarView, outingAvailable } from './stage7-calenda
 import type { CalendarState, CalendarView } from './stage7-calendar';
 import { baggageItems, boxVolume, fleaCapacity, fleaEstimate, fleaMorning, initialFlea, packingBlock, returnable, sellAtFlea } from './stage7-flea';
 import type { FleaState } from './stage7-flea';
-import { visitActivity } from './stage7-events';
+import { isCityVisit, visitActivity } from './stage7-events';
 import type { VisitPhoto } from './stage7-events';
 import { familyDateAtWake, pendingFamilyDateOn, scheduleFamilyDate } from './stage7-family';
 import type { FamilyDate } from './stage7-family';
-import { advanceRelationship, getRelationshipGoal } from './relationships';
+import { advanceRelationship, canOpenRelationship, getRelationshipGoal } from './relationships';
 import type { RelationshipGoal, RelationshipStep } from './stage4-contract';
 import type { GarageItemView, Stage5Command, Stage5View, VehicleView } from './stage5-contract';
-import { applyCommand as applyStage5, economyFor, finishCargo, getView as getStage5View, listingsWithReplies, newGame as newStage5, settleSales, updateStage5, vehicleFor, waitForOffers } from './stage5-engine';
+import { applyCommand as applyStage5, capacityLimit, economyFor, finishCargo, getView as getStage5View, hasTutorialDelivery, housePrices, listingsWithReplies, newGame as newStage5, settleSales, storageUsage, transportFor, updateStage5, vehicleFor, waitForOffers } from './stage5-engine';
+import { hasBonusAuction, requiresLongBed } from './transport';
+import { breakPromise, changeLife, initialLife, isTurntable, lifeScene, lifeScore, referralFor, weekOf, workshopPrice } from './life';
+import type { LifeChoice, LifeState } from './life';
+import { personalCarOffer } from './personal-cars';
+import type { PersonalCar } from './personal-cars';
 import type { Stage5State } from './stage5-engine';
 import type { Stage4State } from './stage4-engine';
 
@@ -29,19 +34,26 @@ export interface Stage7State {
   readonly jobUnlocked?: true;
   readonly parkedLots?: readonly ParkedLot[];
   readonly lastAuctionNumber?: number;
+  readonly bonusAuctionUsed?: true;
+  readonly life?: LifeState;
+  readonly personalCar?: PersonalCar;
+  readonly cityVisit?: true;
 }
 
 type CalendarAction = 'waitUntilNextPeriod' | 'sleep' | 'wakeUp';
 type FleaNavigation = 'openFleaVisit' | 'cancelFleaVisit' | 'confirmFleaVisit' | 'closeFleaReceipt';
 type FleaPacking = 'packForFlea' | 'unpackFlea' | 'toggleFleaBaggage';
 type PhotoAction = 'openVisitPhoto' | 'closeVisitPhoto';
-type SimpleAction = CalendarAction | FleaNavigation | PhotoAction | 'giveBirthdayFlowers' | 'authorizeJob' | 'parkLot';
+type SimpleAction = CalendarAction | FleaNavigation | PhotoAction | 'giveBirthdayFlowers' | 'authorizeJob' | 'parkLot'
+  | 'buyWorkshop' | 'displayTurntable' | 'retrieveTurntable' | 'openReferral';
 
 export type Stage7Command = Stage5Command | {
   [Action in SimpleAction]: { readonly type: Action; readonly expectedRevision: number };
 }[SimpleAction] | {
   [Action in FleaPacking]: { readonly type: Action; readonly expectedRevision: number; readonly itemId: string };
-}[FleaPacking] | { readonly type: 'resumeLot'; readonly expectedRevision: number; readonly lotNumber: number };
+}[FleaPacking] | { readonly type: 'resumeLot'; readonly expectedRevision: number; readonly lotNumber: number }
+  | { readonly type: 'chooseLife'; readonly expectedRevision: number; readonly choice: LifeChoice }
+  | { readonly type: 'buyPersonalCar'; readonly expectedRevision: number; readonly car: PersonalCar };
 
 export type Stage7Dispatch = (command: Stage7Command) => void;
 
@@ -51,10 +63,25 @@ export interface Stage7View {
   readonly parkedLots: readonly { lotNumber: number; purchasePrice: number }[];
   readonly canParkLot: boolean;
   readonly vehicle: VehicleView;
+  readonly personalCar?: PersonalCar;
+  readonly personalOffer: ReturnType<typeof personalCarOffer>;
+  readonly auctionTransport?: { readonly garageFree: number; readonly tutorialDelivery: boolean; readonly longLoad: string | null };
   readonly calendar: CalendarView;
   readonly flea: FleaView;
   readonly paidVisit: VisitPhoto | null;
   readonly familyDate: FamilyDateView | null;
+  readonly life: LifeView;
+}
+
+interface LifeView {
+  readonly score: number;
+  readonly canOpen: boolean;
+  readonly last?: LifeChoice;
+  readonly scene: (Omit<NonNullable<ReturnType<typeof lifeScene>>, 'item'> & { itemName?: string }) | null;
+  readonly promise?: { kind: NonNullable<LifeState['promise']>['kind']; due: number; itemId?: string; itemName?: string };
+  readonly referral: { itemName: string; price: number; day: number } | null;
+  readonly home: { level: 1 | 2 | 3 | 4 | 5; workshopPrice: number; nextHouse?: { level: 4 | 5; price: number };
+    display?: string; displayCandidate?: string };
 }
 
 interface FamilyDateView extends FamilyDate {
@@ -81,7 +108,11 @@ export function migrateStage5(base: Stage5State): Stage7State {
 }
 
 export function newGame(seed?: number): Stage7State {
-  return migrateStage5(newStage5(seed));
+  return migrateStage5({ ...newStage5(seed), transport: { model: 'scooter' } });
+}
+
+function canUseBonusAuction(state: Stage7State): boolean {
+  return state.calendar.period === 'evening' && !state.bonusAuctionUsed && hasBonusAuction(transportFor(state.base));
 }
 
 function confirmFleaVisit(state: Stage7State): Stage7State {
@@ -148,7 +179,68 @@ function giveBirthdayFlowers(state: Stage7State): Stage7State {
   return { ...state, base: updateStage5(base, {}, profile.game.bank - economy.flowerPrice), familyDate: celebrated };
 }
 
+const lifeFor = (state: Stage7State) => state.life ?? initialLife(state.base.base.relationshipStep);
+const hasCityVisit = (state: Stage7State) => state.cityVisit === true || isCityVisit(state.paidVisit?.record.venue);
+const displayCandidate = (base: Stage5State) => base.items.find(item => isTurntable(item) && item.condition !== 'damaged' &&
+  !base.listings.some(({ itemId }) => itemId === item.id));
+
+function chooseLife(state: Stage7State, choice: LifeChoice): Stage7State {
+  const { base, calendar } = state;
+  if (!base.base.relationshipOpen) return state;
+  let life = lifeFor(state);
+  const scene = lifeScene(life, base, calendar.day, calendar.period === 'evening');
+  if (!scene || !scene.choices.includes(choice)) return state;
+  const { id, item } = scene;
+  const day = calendar.day;
+  let nextBase = base;
+  if (id === 'intro') {
+    nextBase = applyStage5(base, { type: 'meetNeighbor', expectedRevision: base.base.game.revision }, state.flea.items);
+    if (nextBase === base) return state;
+  }
+  if (choice === 'giveCamera' && item) nextBase = settleSales(base, [{ item, price: null }], state.flea.items);
+  if (choice === 'reschedule') {
+    if (!life.promise) return state;
+    return { ...state, base: updateStage5(base, {}), life: { ...life, last: choice, promise: { ...life.promise, due: day + 1 } } };
+  }
+  if (choice === 'talk') life = changeLife(life, { trust: 1, interest: 1 });
+  if (choice === 'repair' || choice === 'keep') life = changeLife(life, { interest: 1 });
+  if (choice === 'listen') life = changeLife(life, { trust: 2, reliability: 1, memories: 1 });
+  if (choice === 'giveCamera') life = changeLife(life, { trust: 1, reliability: 1 });
+  if (choice === 'apologize') life = changeLife(life, { trust: 1 });
+
+  const { promise, broken, ...history } = life;
+  const gain = life.seen.includes(id) ? 0 : 1;
+  life = { ...history, last: choice, seen: gain ? [...life.seen, id] : life.seen };
+  if (broken && choice !== 'apologize') life = { ...life, broken };
+  if (choice === 'keep' && item) life = { ...life, promise: { kind: 'listening', itemId: item.id, due: day } };
+  else if (choice === 'acceptRequest') life = { ...life, promise: { kind: 'camera', due: day + 3 } };
+  else if (promise && choice !== 'listen' && choice !== 'giveCamera') life = { ...life, promise };
+
+  const current = nextBase.base.game;
+  const status = current.status + gain;
+  if (!Number.isSafeInteger(status)) return state;
+  const next = nextBase === base ? updateStage5(base, {}, current.bank, status) :
+    { ...nextBase, base: { ...nextBase.base, game: { ...current, status } } } as Stage5State;
+  return { ...state, base: next, life, familyDate: id === 'intro' ? scheduleFamilyDate(day) : state.familyDate };
+}
+
+function maintainLife(state: Stage7State, next: Stage7State): Stage7State {
+  if (state === next || !next.life) return next;
+  const life = next.life;
+  if (next.base.base.relationshipStep !== 'unmet' && !life.seen.includes('intro')) {
+    return { ...next, life: { ...life, ...initialLife(next.base.base.relationshipStep) } };
+  }
+  if (life.promise && next.calendar.day > life.promise.due) return { ...next, life: breakPromise(life, 'missed') };
+  const promised = life.promise?.itemId;
+  if (promised && !next.base.items.some(({ id }) => id === promised)) return { ...next, life: breakPromise(life, 'soldPromise') };
+  return next;
+}
+
 export function applyCommand(state: Stage7State, command: Stage7Command): Stage7State {
+  return maintainLife(state, reduce(state, command));
+}
+
+function reduce(state: Stage7State, command: Stage7Command): Stage7State {
   const { base, calendar, flea, paidVisit, familyDate } = state;
   const profile = base.base;
   if (profile.game.revision !== command.expectedRevision) return state;
@@ -182,8 +274,10 @@ export function applyCommand(state: Stage7State, command: Stage7Command): Stage7
     if (command.type === 'wakeUp' && (calendar.period !== 'night' || calendar.day >= Number.MAX_SAFE_INTEGER)) return state;
     const awake = command.type === 'wakeUp';
     const day = awake ? calendar.day + 1 : calendar.day;
+    const { bonusAuctionUsed, ...rest } = state;
     return {
-      ...state,
+      ...rest,
+      ...(!awake && bonusAuctionUsed ? { bonusAuctionUsed } : {}),
       base: updateStage5(base, {}),
       calendar: { day, period: awake ? 'morning' : 'night' },
       familyDate: awake ? familyDateAtWake(familyDate, day) : familyDate,
@@ -191,10 +285,47 @@ export function applyCommand(state: Stage7State, command: Stage7Command): Stage7
   }
 
   if (calendar.period === 'night') return state;
+  if (command.type === 'buyPersonalCar') {
+    if (base.room !== 'home') return state;
+    const game = profile.game;
+    const offer = personalCarOffer(state.personalCar, game.status, game.bank, hasCityVisit(state));
+    if (!offer || offer.id !== command.car || offer.blocked) return state;
+    return { ...state, personalCar: offer.id, cityVisit: true, base: updateStage5(base, {}, game.bank - offer.total) };
+  }
+  if (command.type === 'chooseLife') return chooseLife(state, command.choice);
+  if (command.type === 'buyWorkshop') {
+    const game = profile.game;
+    if (base.room !== 'home' || base.workshop || !game.assets.includes('home') || game.bank < workshopPrice) return state;
+    return { ...state, base: updateStage5(base, { workshop: true }, game.bank - workshopPrice) };
+  }
+  if (command.type === 'displayTurntable' || command.type === 'retrieveTurntable') {
+    if (base.room !== 'home' || !profile.game.assets.includes('home')) return state;
+    const { displayId, ...rest } = lifeFor(state);
+    const item = displayCandidate(base);
+    if (command.type === 'retrieveTurntable') return displayId ? { ...state, base: updateStage5(base, {}), life: rest } : state;
+    return !displayId && item ? { ...state, base: updateStage5(base, {}), life: { ...rest, displayId: item.id } } : state;
+  }
+  if (command.type === 'openReferral') {
+    if (!profile.relationshipOpen) return state;
+    const life = lifeFor(state);
+    const referral = referralFor(life, base, calendar.day);
+    if (!referral) return state;
+    const id = `listing-${profile.game.revision + 1}`;
+    const { item, price } = referral;
+    const listing = { id, itemId: item.id, price, offer: {
+      id: `offer-${id}-referral`, buyer: 'Лера · по рекомендации', price, ceiling: price, unread: true,
+      messages: [{ side: 'buyer' as const, text: 'Привет! Мне посоветовала тебя подруга. Ищу такую вещь в рабочем состоянии для своей коллекции. Готова забрать по указанной цене.' }],
+    } };
+    const inbox = updateStage5(base, { room: 'inbox', listings: [...base.listings, listing] });
+    return { ...state, base: { ...inbox, base: { ...inbox.base, relationshipOpen: false } },
+      life: { ...life, recommendedWeek: weekOf(calendar.day) } };
+  }
+  if ((command.type === 'discardItem' || command.type === 'packForFlea' || command.type === 'publish') &&
+      state.life?.displayId === command.itemId) return state;
   const parkedLots = state.parkedLots ?? [];
   if (command.type === 'parkLot') {
     const game = profile.game;
-    if (game.phase !== 'reveal' || base.cargo.length || !outingAvailable(calendar.period) ||
+    if (game.phase !== 'reveal' || base.cargo.length || (!outingAvailable(calendar.period) && !state.bonusAuctionUsed) ||
       state.lastAuctionNumber !== undefined) return state;
     const { bank, revision, status, lotNumber, assets, nextSeed, offerSeeds } = game;
     return {
@@ -254,15 +385,19 @@ export function applyCommand(state: Stage7State, command: Stage7Command): Stage7
   }
   const visit = visitActivity(command);
   const waits = command.type === 'waitForBuyer';
-  if ((command.type === 'enterAuction' || visit || waits) && !outingAvailable(calendar.period)) return state;
+  const bonusEntry = command.type === 'enterAuction' && canUseBonusAuction(state);
+  if ((command.type === 'enterAuction' || visit || waits) && !outingAvailable(calendar.period) && !bonusEntry) return state;
   const source = command.type === 'openRelationship' && base.room === 'home' ? { ...base, room: null } : base;
   const next = applyStage5(source, command, flea.items);
   if (next === source) return state;
+  const bonus = (bonusEntry || command.type === 'claimJob' && canUseBonusAuction(state)) && next.base.game.phase === 'inspection'
+    ? { bonusAuctionUsed: true } as const : {};
 
   if (visit && outingAvailable(calendar.period)) {
     const game = next.base.game;
     return {
       ...state, base: next, calendar: finishOuting(calendar),
+      ...(hasCityVisit(state) || isCityVisit(visit.venue) ? { cityVisit: true } as const : {}),
       paidVisit: { open: true, record: {
         ...visit, day: calendar.day, outing: calendar.period, revision: game.revision,
         spent: profile.game.bank - game.bank, statusGain: game.status - profile.game.status,
@@ -279,10 +414,11 @@ export function applyCommand(state: Stage7State, command: Stage7Command): Stage7
   const nextWithReplies = auctionFinished ? { ...next, listings: listingsWithReplies(next) } : next;
   if (state.jobUnlocked && next.base.game.phase !== 'recovery') {
     const { jobUnlocked: _unused, ...rest } = state;
-    return { ...rest, base: nextWithReplies };
+    return { ...rest, ...bonus, base: nextWithReplies };
   }
   return {
     ...state, base: nextWithReplies, calendar: waits || auctionFinished ? finishOuting(calendar) : calendar,
+    ...bonus,
     familyDate: command.type === 'meetNeighbor' ? scheduleFamilyDate(calendar.day) : familyDate,
   };
 }
@@ -293,12 +429,48 @@ export function getView(state: Stage7State): Stage7View {
   const used = boxVolume(flea.items) + boxVolume(candidates.filter(({ id }) => flea.baggageSelection.includes(id)));
   const { game, relationshipStep: step } = base.base;
   const economy = economyFor(base);
+  const vehicle = vehicleFor(base);
+  const life = lifeFor(state);
+  const event = base.base.relationshipOpen ? lifeScene(life, base, calendar.day, calendar.period === 'evening') : null;
+  const referral = base.base.relationshipOpen ? referralFor(life, base, calendar.day) : null;
+  const homeImproved = game.assets.includes('home');
+  const displayed = base.items.find(({ id }) => id === life.displayId);
+  const candidate = homeImproved && !displayed ? displayCandidate(base) : null;
+  const promised = base.items.find(({ id }) => id === life.promise?.itemId);
+  const screen = getStage5View(base);
+  const nextHouse = base.workshop && base.house !== 5 ? base.house === 4 ? 5 : 4 : null;
+  const homeScreen = screen.phase === 'home' && state.personalCar ? { ...screen, personalCar: state.personalCar } : screen;
   return {
-    screen: getStage5View(base), vehicle: vehicleFor(base.capacityUpgrades), jobUnlocked: state.jobUnlocked === true,
+    screen: displayed && (screen.phase === 'garage' || screen.phase === 'market')
+      ? { ...screen, items: screen.items.filter(({ id }) => id !== displayed.id) } : homeScreen,
+    vehicle, jobUnlocked: state.jobUnlocked === true,
+    ...(state.personalCar ? { personalCar: state.personalCar } : {}),
+    personalOffer: personalCarOffer(state.personalCar, game.status, game.bank, hasCityVisit(state)),
+    life: {
+      score: lifeScore(life), canOpen: canOpenRelationship(game.status), ...(life.last ? { last: life.last } : {}),
+      scene: event ? { id: event.id, title: event.title, line: event.line, choices: event.choices,
+        ...(event.item ? { itemName: event.item.name } : {}) } : null,
+      ...(life.promise ? { promise: { kind: life.promise.kind, due: life.promise.due,
+        ...(promised ? { itemId: promised.id, itemName: promised.name } : {}) } } : {}),
+      referral: referral ? { itemName: referral.item.name, price: referral.price, day: referral.day } : null,
+      home: { level: base.house ?? (base.workshop ? 3 : homeImproved ? 2 : 1), workshopPrice,
+        ...(nextHouse ? { nextHouse: { level: nextHouse, price: housePrices[nextHouse] } } : {}),
+        ...(displayed ? { display: displayed.name } : {}), ...(candidate ? { displayCandidate: candidate.name } : {}) },
+    },
+    ...(game.phase === 'inspection' || game.phase === 'bidding' ? { auctionTransport: {
+      garageFree: capacityLimit(base.capacityUpgrades, 'garage') - storageUsage(base.items, false),
+      tutorialDelivery: hasTutorialDelivery(vehicle.model, game),
+      longLoad: base.transport && (vehicle.model === 'scooter' || vehicle.model === 'zhiguli')
+        ? game.lot.visibleFinds.find(({ name }) => requiresLongBed(name))?.name ?? null : null,
+    } } : {}),
     parkedLots: (state.parkedLots ?? []).map(({ game }) => ({ lotNumber: game.lotNumber, purchasePrice: game.purchasePrice })),
     canParkLot: base.base.game.phase === 'reveal' && !base.cargo.length && state.lastAuctionNumber === undefined
-      && outingAvailable(calendar.period),
-    calendar: getCalendarView(calendar), paidVisit: state.paidVisit,
+      && (outingAvailable(calendar.period) || state.bonusAuctionUsed === true),
+    calendar: {
+      ...getCalendarView(calendar),
+      ...(calendar.period === 'evening' && hasBonusAuction(transportFor(base))
+        ? { bonusAuction: state.bonusAuctionUsed ? 'used' as const : 'available' as const } : {}),
+    }, paidVisit: state.paidVisit,
     familyDate: familyDate && {
       ...familyDate, affection: familyDate.outcome === 'celebrated' ? 1 : familyDate.outcome === 'missed' ? -1 : 0,
       price: economy.flowerPrice, advancesStory: step === 'met', step, status: game.status,

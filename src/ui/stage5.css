@@ -219,7 +219,7 @@
 .market-message--player { justify-self: end; background: #3b3727; }
 .market-message p, .market-rating p { margin: 0; }
 .market-rating { margin-top: 12px; }
-.game-menu { position: relative; }
+.game-menu { position: relative; flex-shrink: 0; }
 .game-menu summary { display: grid; place-items: center; padding-inline: .4rem; list-style: none; }
 .game-menu summary::-webkit-details-marker { display: none; }
 .game-menu__actions { position: absolute; right: 0; z-index: 9; display: grid; gap: 4px; width: max-content; }

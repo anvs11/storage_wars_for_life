@@ -5,7 +5,10 @@ import { applySavedCommand, load, save } from '../platform/stage7-save';
 import { outingAvailable } from './stage7-calendar';
 import { marketOffers } from './market-dialogue';
 import { applyCommand, getView, migrateStage5, newGame } from './stage7-engine';
+import { newGame as newStage5 } from './stage5-engine';
 import type { Stage7Command, Stage7State } from './stage7-engine';
+import type { OwnedItem } from './stage5-engine';
+import type { LifeChoice } from './life';
 
 type Action<C = Stage7Command> = C extends Stage7Command ? Omit<C, 'expectedRevision'> : never;
 const revision = (state: Stage7State) => getView(state).screen.revision;
@@ -37,7 +40,7 @@ function reload(state: Stage7State): Stage7State {
   return restored.state;
 }
 
-const starter = () => play(newGame(64), { type: 'skipStory' });
+const starter = () => play(migrateStage5(newStage5(64)), { type: 'skipStory' });
 
 function funded(bank: number, status = 0): Stage7State {
   const state = starter();
@@ -53,6 +56,204 @@ const homeFromLot = { type: 'nextLot' } as const;
 const wait = { type: 'waitUntilNextPeriod' } as const;
 const home = { type: 'navigate', room: 'home' } as const;
 const closePhoto = { type: 'closeVisitPhoto' } as const;
+const neighbor = { type: 'openRelationship' } as const;
+const leaveNeighbor = { type: 'returnToHub' } as const;
+const lifeChoice = (choice: LifeChoice) => ({ type: 'chooseLife', choice } as const);
+
+function lifeProfile(): Stage7State {
+  const state = funded(85000, 18);
+  const item = state.base.items[0]!;
+  const finds: OwnedItem[] = [
+    { ...item, id: 'turntable-test', name: 'Проигрыватель', size: 2, value: 4000, estimate: { min: 3000, max: 5000 } },
+    { ...item, id: 'camera-test', name: 'Плёночный фотоаппарат', value: 12000, estimate: { min: 9000, max: 15000 } },
+    { ...item, id: 'damaged-test', name: 'Электрический чайник', condition: 'damaged' },
+  ];
+  return { ...state, base: { ...state.base, items: [...state.base.items, ...finds] } };
+}
+
+it('отделяет социальный рейтинг от ответа соседке и сохраняет обещание', () => {
+  const initial = play(lifeProfile(), auctions, neighbor);
+  const introduced = reload(play(initial, lifeChoice('talk')));
+  const reservedIntro = reload(play(initial, lifeChoice('leave')));
+  expect(introduced.base.base.game.status).toBe(19);
+  expect(reservedIntro.base.base.game.status).toBe(19);
+  expect(getView(introduced).life.score).toBe(2);
+  expect(getView(reservedIntro).life.score).toBe(0);
+  const sold = reload(play(introduced, lifeChoice('sell')));
+  const repaired = reload(play(introduced, lifeChoice('repair')));
+  const promised = reload(play(introduced, lifeChoice('keep')));
+  for (const reply of [sold, repaired, promised]) {
+    expect(reply.base.base.game.status).toBe(20);
+    expect(reply.base.base.game.bank).toBe(85000);
+    expect(reply.base.reviews).toEqual(introduced.base.reviews);
+  }
+  expect(getView(sold).life.score).toBe(2);
+  expect(getView(repaired).life.score).toBe(3);
+  expect(getView(promised).life.promise).toMatchObject({ kind: 'listening', due: 1, itemId: 'turntable-test' });
+  expect(send(promised, lifeChoice('keep'))).toBe(promised);
+});
+
+it('меняет только личный показатель после пропуска и позволяет восстановить доверие', () => {
+  const before = play(lifeProfile(), auctions, neighbor, lifeChoice('talk'), lifeChoice('keep'), leaveNeighbor, home, wait, wait, wait);
+  const missed = reload(play(before, { type: 'sleep' }, { type: 'wakeUp' }));
+  expect(missed.base.base.game.status).toBe(before.base.base.game.status);
+  expect(getView(missed).life).toMatchObject({ score: 2, last: 'missed' });
+  const reconciliation = reload(play(missed, neighbor, lifeChoice('apologize')));
+  expect(getView(reconciliation).life.score).toBe(3);
+  expect(reconciliation.life?.broken).toBeUndefined();
+  expect(send(reconciliation, lifeChoice('apologize'))).toBe(reconciliation);
+});
+
+it('сохраняет обещание при публикации и отмечает нарушение при фактической продаже', () => {
+  const listed = play(lifeProfile(), auctions, neighbor, lifeChoice('talk'), lifeChoice('keep'), leaveNeighbor,
+    { type: 'navigate', room: 'market' }, { type: 'publish', itemId: 'turntable-test', price: 4000 },
+    { type: 'navigate', room: 'inbox' });
+  expect(listed.life?.promise?.itemId).toBe('turntable-test');
+  const listing = listed.base.listings[0]!;
+  expect(listing.offer?.price).toBe(4000);
+  const sold = reload(play(listed, { type: 'acceptOffer', listingId: listing.id, offerId: listing.offer!.id }));
+  expect(sold.base.base.game.status).toBe(20);
+  expect(sold.base.base.game.bank).toBe(89000);
+  expect(sold.life?.broken).toBe(true);
+  expect(sold.life?.last).toBe('soldPromise');
+  expect(sold.life?.promise).toBeUndefined();
+});
+
+it('предлагает частную продажу через чат и начисляет цену один раз', () => {
+  const evening = play(lifeProfile(), auctions, neighbor, lifeChoice('talk'), lifeChoice('keep'), leaveNeighbor, home, wait, wait, wait, neighbor);
+  const shared = reload(play(evening, lifeChoice('listen')));
+  expect(getView(shared).life.score).toBe(7);
+  expect(getView(shared).life.referral).toEqual({ itemName: 'Проигрыватель', price: 4600, day: 7 });
+  const inbox = reload(play(shared, { type: 'openReferral' }));
+  expect(inbox.base.base.game.bank).toBe(85000);
+  const listing = inbox.base.listings[0]!;
+  const sale = { type: 'acceptOffer', listingId: listing.id, offerId: listing.offer!.id } as const;
+  const sold = reload(play(inbox, sale));
+  expect(sold.base.base.game.bank).toBe(89600);
+  expect(sold.base.items.some(({ id }) => id === 'turntable-test')).toBe(false);
+  expect(send(sold, sale)).toBe(sold);
+  const again = play(sold, auctions, neighbor);
+  expect(send(again, { type: 'openReferral' })).toBe(again);
+  const gift = reload(play(again, lifeChoice('acceptRequest'), lifeChoice('giveCamera')));
+  expect(gift.base.base.game.bank).toBe(89600);
+  expect(gift.base.items.some(({ id }) => id === 'camera-test')).toBe(false);
+  expect(gift.life?.promise).toBeUndefined();
+});
+
+it('хранит проигрыватель дома и применяет цену мастерской в карточке и при ремонте', () => {
+  const remodeled = play(lifeProfile(), auctions, { type: 'spend', offerId: 'home' }, home);
+  expect(getView(remodeled).life.home.level).toBe(2);
+  const oldGarage = getView(play(remodeled, { type: 'navigate', room: 'garage' })).screen;
+  expect(oldGarage).toMatchObject({ items: expect.arrayContaining([expect.objectContaining({
+    id: 'damaged-test', repair: expect.objectContaining({ price: 500 }),
+  })]) });
+  const workshop = reload(play(remodeled, { type: 'buyWorkshop' }, { type: 'displayTurntable' }));
+  expect(getView(workshop).life.home).toMatchObject({ level: 3, display: 'Проигрыватель' });
+  expect(workshop.base.base.game.bank).toBe(30000);
+  expect(send(workshop, { type: 'buyWorkshop' })).toBe(workshop);
+  const garage = play(workshop, { type: 'navigate', room: 'garage' });
+  const view = getView(garage).screen;
+  if (view.phase !== 'garage') throw new Error('Ожидается гараж');
+  expect(view.items.find(({ id }) => id === 'damaged-test')?.repair?.price).toBe(375);
+  expect(view.items.some(({ id }) => id === 'turntable-test')).toBe(false);
+  expect(send(garage, { type: 'discardItem', itemId: 'turntable-test' })).toBe(garage);
+  const repaired = reload(play(garage, { type: 'repairItem', itemId: 'damaged-test' }, home, { type: 'retrieveTurntable' }));
+  expect(repaired.base.base.game.bank).toBe(29625);
+  expect(getView(repaired).life.home.displayCandidate).toBe('Проигрыватель');
+});
+
+it('меняет двор при переезде, а вместимость гаража при покупке стеллажей', () => {
+  const start = lifeProfile();
+  const rich = { ...start, base: { ...start.base, base: { ...start.base.base, game: { ...start.base.base.game, bank: 4000000 } } } } as Stage7State;
+  const renovated = play(rich, auctions, { type: 'spend', offerId: 'home' }, home, { type: 'buyWorkshop' });
+  expect(send(renovated, { type: 'buyHouse', level: 5 })).toBe(renovated);
+  const estate = reload(play(renovated, { type: 'displayTurntable' }, { type: 'buyHouse', level: 4 }, { type: 'buyHouse', level: 5 }));
+  expect(getView(estate)).toMatchObject({ screen: { house: 5, workshop: true, garage: { limit: 8 } },
+    life: { home: { level: 5, display: 'Проигрыватель' } } });
+  expect(send(estate, { type: 'buyHouse', level: 5 })).toBe(estate);
+  expect(send(estate, { type: 'buyCapacity', target: 'garage' })).toBe(estate);
+  const garage = play(estate, { type: 'navigate', room: 'garage' });
+  expect(send(garage, { type: 'buyCapacity', target: 'shelves' })).toBe(garage);
+  const racks = reload(play(garage, { type: 'buyCapacity', target: 'garage' }, { type: 'buyCapacity', target: 'shelves' }));
+  expect(getView(racks).screen).toMatchObject({ garage: { limit: 24 } });
+  expect(send(racks, { type: 'buyCapacity', target: 'shelves' })).toBe(racks);
+});
+
+it('продаёт личные машины после городского выезда с зачётом прежней, не трогая рабочий транспорт', () => {
+  const start = funded(15000000, 48);
+  const atHome = play(start, home);
+  const mini = { type: 'buyPersonalCar', car: 'mini' } as const;
+  expect(send(atHome, mini)).toBe(atHome);
+  const afterFilm = play(atHome, auctions, { type: 'spend', offerId: 'cinema' }, { type: 'closeVisitPhoto' }, home);
+  const acquired = reload(play(afterFilm, mini));
+  expect(acquired.base.base.game.bank).toBe(afterFilm.base.base.game.bank - 550000);
+  expect(getView(acquired)).toMatchObject({ personalCar: 'mini', vehicle: { model: 'zhiguli', capacity: 4 },
+    personalOffer: { id: 'q3', tradeIn: 330000, total: 820000 } });
+  expect(send(acquired, { type: 'buyPersonalCar', car: 'cayenne' })).toBe(acquired);
+  const q3 = { type: 'buyPersonalCar', car: 'q3', expectedRevision: revision(acquired) } as const;
+  const replaced = reload(applyCommand(acquired, q3));
+  expect(replaced.base.base.game.bank).toBe(acquired.base.base.game.bank - 820000);
+  expect(applyCommand(replaced, q3)).toBe(replaced);
+  const flagship = reload(play(replaced, { type: 'buyPersonalCar', car: 'cayenne' },
+    { type: 'buyPersonalCar', car: 'amg' }, { type: 'buyPersonalCar', car: 'range' }));
+  expect(getView(flagship)).toMatchObject({ personalCar: 'range', personalOffer: null, vehicle: { model: 'zhiguli' } });
+  expect(flagship.base.base.game.status).toBe(afterFilm.base.base.game.status);
+});
+
+it('везёт велосипед отдельно от сумки скутера и ремонтирует седан один раз', () => {
+  const fresh = play(newGame(64), { type: 'skipStory' });
+  const garage = { ...fresh, base: { ...funded(6000).base, transport: fresh.base.transport! } };
+  expect(getView(garage).vehicle).toEqual({ model: 'scooter', capacity: 2 });
+  const beforeFirstAuction = play(garage, { type: 'navigate', room: 'car' });
+  expect(send(beforeFirstAuction, { type: 'upgradeTransport', upgrade: 'restoreZhiguli' })).toBe(beforeFirstAuction);
+  const inspection = reload(play(garage, auctions, enter));
+  expect(getView(inspection).auctionTransport).toMatchObject({ tutorialDelivery: true, garageFree: 5 });
+  const selected = reload(play(inspection, { type: 'bid' }, { type: 'openBox', boxId: 'box' },
+    { type: 'toggleCargo', itemId: 'bicycle' }, { type: 'toggleCargo', itemId: 'tool' }));
+  expect(getView(selected).screen).toMatchObject({ phase: 'cargo', car: { used: 1, limit: 2 }, garage: { used: 8, limit: 8 },
+    items: [{ id: 'bicycle', selected: true, tutorialDelivery: true }, { id: 'tool', selected: true }] });
+  const delivered = reload(play(selected, { type: 'finishCargo', leaveRemaining: false }));
+  expect(delivered.base.items.map(item => item.id)).toContain('owned-1-bicycle');
+
+  const car = play(delivered, { type: 'navigate', room: 'car' });
+  const command = { type: 'upgradeTransport', upgrade: 'restoreZhiguli', expectedRevision: revision(car) } as const;
+  const repaired = reload(applyCommand(car, command));
+  expect(getView(repaired)).toMatchObject({ vehicle: { model: 'zhiguli', capacity: 4 }, screen: { phase: 'car', bank: 1000 } });
+  expect(repaired.base.base.game.status).toBe(5);
+  expect(applyCommand(repaired, command)).toBe(repaired);
+  expect(send(repaired, { type: 'upgradeTransport', upgrade: 'restoreZhiguli' })).toBe(repaired);
+});
+
+it('покупает машины по порядку и открывает один вечерний аукцион независимо от прицепа', () => {
+  const fresh = play(newGame(64), { type: 'skipStory' });
+  const garage = { ...fresh, base: { ...funded(1600000).base, transport: fresh.base.transport! } };
+  let car = play(garage, auctions, enter, pass, homeFromLot, { type: 'navigate', room: 'car' });
+  for (const [upgrade, model, capacity] of [
+    ['restoreZhiguli', 'zhiguli', 4], ['buyPickup', 'pickup', 6], ['buyVan', 'van', 8], ['buyHeavy', 'heavy', 10],
+    ['highSideTrailer', 'heavy', 12], ['containerTrailer', 'heavy', 16],
+  ] as const) {
+    car = reload(play(car, { type: 'upgradeTransport', upgrade }));
+    expect(getView(car).vehicle).toMatchObject({ model, capacity });
+  }
+  expect(car.base.base.game.status).toBe(5);
+  const evening = reload(play(car, auctions, enter, pass, homeFromLot, auctions, enter, pass, homeFromLot));
+  expect(getView(evening).calendar).toMatchObject({ period: 'evening', remainingOutings: 0 });
+  const closedHub = play(evening, auctions);
+  expect(send(closedHub, enter)).toBe(closedHub);
+  const tuned = reload(play(evening, { type: 'navigate', room: 'car' },
+    { type: 'upgradeTransport', upgrade: 'reinforceSuspension' }, { type: 'upgradeTransport', upgrade: 'tuneEngine' }));
+  expect(getView(tuned)).toMatchObject({ vehicle: { capacity: 16, trailer: 2 }, calendar: { bonusAuction: 'available' } });
+  const fourth = reload(play(tuned, auctions, enter));
+  expect(getView(fourth)).toMatchObject({ screen: { phase: 'inspection', lotNumber: 4 }, calendar: { bonusAuction: 'used' } });
+  const closed = reload(play(fourth, pass, homeFromLot, auctions));
+  expect(send(closed, enter)).toBe(closed);
+  expect(send(closed, { type: 'spend', offerId: 'cinema' })).toBe(closed);
+  const morning = reload(play(closed, home, { type: 'sleep' }, { type: 'wakeUp' }));
+  expect(morning.bonusAuctionUsed).toBeUndefined();
+  expect(getView(morning).calendar).toMatchObject({ day: 2, remainingOutings: 3 });
+  const nextEvening = play(morning, wait, wait, wait);
+  expect(getView(nextEvening).calendar.bonusAuction).toBe('available');
+});
 
 it('покупает два гаража за день и разбирает их после перезагрузки без повторного расхода выезда', () => {
   function buy(state: Stage7State): Stage7State {

@@ -60,7 +60,7 @@ export function mountHub(root: HTMLElement, view: HubView, dispatch: Stage4Dispa
     if (auction.availability === 'fundsLocked' || auction.availability === 'recovery') {
       card.append(element('p', 'hub__reason', `Нужно ${rubles(auction.openingBid)} для ставки`));
     }
-    if (calendar?.outing !== null && view.allowedActions.includes('enterAuction') &&
+    if ((calendar?.outing !== null || calendar.bonusAuction === 'available') && view.allowedActions.includes('enterAuction') &&
         (auction.availability === 'ready' || auction.availability === 'recovery')) {
       const recover = auction.availability === 'recovery';
       const control = button(recover ? 'Восстановить банк' : 'К осмотру',
@@ -72,7 +72,8 @@ export function mountHub(root: HTMLElement, view: HubView, dispatch: Stage4Dispa
   }
   auctions.append(element('h2', 'garage__heading', 'Аукционы'));
   if (calendar) auctions.append(element('p', 'hub__detail', calendar.outing
-    ? `Аукцион займёт ${calendar.outing}.` : 'Следующий аукцион доступен утром.'));
+    ? `Аукцион займёт ${calendar.outing}.` : calendar.bonusAuction === 'available'
+      ? 'Улучшенный пикап успеет на один вечерний аукцион.' : 'Следующий аукцион доступен утром.'));
   auctions.append(auctionList);
 
   const spending = element('section', 'hub__section');
