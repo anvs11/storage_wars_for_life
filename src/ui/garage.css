@@ -3,22 +3,27 @@ body:has(.garage) {
   background: #11191a;
 }
 
-.garage {
+.garage,
+.showroom {
   --ink: #f7f1e6;
   --muted: #c1cac4;
   --line: #465552;
   --amber: #ffc76b;
   box-sizing: border-box;
-  min-height: 100svh;
-  max-width: 1440px;
-  margin-inline: auto;
-  padding: clamp(12px, 2.5vw, 32px);
   color: var(--ink);
   font: 1rem/1.5 Inter, system-ui, sans-serif;
   overflow-wrap: anywhere;
 }
 
+.garage {
+  min-height: 100svh;
+  max-width: 1440px;
+  margin-inline: auto;
+  padding: clamp(12px, 2.5vw, 32px);
+}
+
 .garage *,
+.showroom *,
 .garage *::before,
 .garage *::after {
   box-sizing: inherit;

@@ -288,6 +288,12 @@ function mountRoomContents(screen: HTMLElement, view: RoomView, button: Control,
     if (room === view.phase) item.setAttribute('aria-current', 'page');
     navigation.append(item);
   }
+  if (view.phase === 'home' || view.phase === 'car') {
+    const showroom = element('button', buttonClass, 'Автосалон');
+    showroom.type = 'button';
+    showroom.dataset.openShowroom = 'work';
+    navigation.append(showroom);
+  }
   navigation.append(button('К торгам', { type: 'navigate', room: 'auctions' }, 'auctions', true));
   screen.append(navigation);
 
@@ -327,13 +333,9 @@ function mountRoomContents(screen: HTMLElement, view: RoomView, button: Control,
     car.append(vehiclePicture(model, view.vehicle?.trailer), element('span', '', model === 'scooter' ? 'Скутер' : 'Рабочая'));
     yardScene.append(car);
     if (view.personalCar) {
-      const personal = actionButton('', 'yard-car yard-car--personal', () => {
-        const destination = screen.querySelector<HTMLDetailsElement>('[data-personal-garage]');
-        if (destination) {
-          destination.open = true;
-          destination.querySelector('summary')?.focus();
-        }
-      });
+      const personal = element('button', 'yard-car yard-car--personal');
+      personal.type = 'button';
+      personal.dataset.openShowroom = 'personal';
       const picture = personalCarPicture(view.personalCar);
       personal.dataset.personalCar = view.personalCar;
       personal.setAttribute('aria-label', `Личная машина: ${picture.alt}`);
@@ -359,7 +361,7 @@ function mountRoomContents(screen: HTMLElement, view: RoomView, button: Control,
     addFact(facts, 'Мест для груза', String(view.vehicle.capacity));
     if (view.vehicle.trailer !== undefined) addFact(facts, 'Прицеп', trailerNames[view.vehicle.trailer]);
     panel.append(facts);
-    for (const offer of view.transportOffers ?? []) {
+    for (const offer of view.vehicle.model === 'heavy' ? view.transportOffers ?? [] : []) {
       const section = element('section', 'vehicle-upgrade');
       const remainder = view.bank - offer.price;
       section.append(element('h2', 'garage__heading', offer.label),

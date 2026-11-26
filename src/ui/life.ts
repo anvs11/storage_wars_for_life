@@ -2,7 +2,6 @@ import { choiceLabels } from '../game/life';
 import type { Stage7Command, Stage7Dispatch, Stage7View } from '../game/stage7-engine';
 import recordPlayer from './assets/scene-turntable.png';
 import { actionButton, element, rubles } from './dom';
-import { personalCarPicture } from './vehicle';
 import './life.css';
 
 type Action<T = Stage7Command> = T extends Stage7Command ? Omit<T, 'expectedRevision'> : never;
@@ -98,32 +97,8 @@ export function mountLife(root: HTMLElement, view: Stage7View, dispatch: Stage7D
         action('Вернуть проигрыватель в гараж', { type: 'retrieveTurntable' }));
     } else if (displayCandidate) home.append(action(`Поставить дома: ${displayCandidate}`, { type: 'displayTurntable' }));
     if (life.canOpen && !view.familyDate) home.append(action('Поговорить с соседкой', { type: 'openRelationship' }));
-    const personal = element('details', 'garage__panel life-home personal-garage');
-    personal.dataset.personalGarage = '';
-    personal.open = previousFocus === 'buyPersonalCar';
-    const personalTitle = element('summary', '', 'Личная машина');
-    personal.append(personalTitle);
-    if (view.personalCar) {
-      const current = personalCarPicture(view.personalCar);
-      current.className = 'personal-garage__picture';
-      personal.append(element('p', '', `Сейчас во дворе · ${current.alt}`), current);
-    } else personal.append(element('p', '', 'Личная машина нужна для поездок по городу.'));
-    const offer = view.personalOffer;
-    if (offer) {
-      const preview = personalCarPicture(offer.id);
-      preview.className = 'personal-garage__picture';
-      const price = offer.tradeIn ? `Цена ${rubles(offer.price)} · зачёт ${rubles(offer.tradeIn)} · доплата ${rubles(offer.total)}`
-        : `Цена ${rubles(offer.price)}`;
-      personal.append(element('strong', '', offer.name), preview, element('p', 'hub__detail', price));
-      if (offer.blocked) personal.append(element('p', 'hub__reason', offer.blocked));
-      else personal.append(element('p', 'hub__detail', `После покупки останется ${rubles(screen.bank - offer.total)}.`));
-      const buy = action(`Купить ${offer.name} за ${rubles(offer.total)}`, { type: 'buyPersonalCar', car: offer.id }, true);
-      buy.disabled = offer.blocked !== null;
-      personal.append(buy);
-    }
-    root.querySelector('.stage5__nav')?.after(home, personal);
-    if (previousFocus === 'buyPersonalCar') personalTitle.focus();
-    else if (previousFocus) (home.querySelector<HTMLElement>(`[data-life-focus="${CSS.escape(previousFocus)}"]`) ?? home).focus();
+    root.querySelector('.stage5__nav')?.after(home);
+    if (previousFocus) (home.querySelector<HTMLElement>(`[data-life-focus="${CSS.escape(previousFocus)}"]`) ?? home).focus();
   }
 
   if (life.promise?.itemId && (screen.phase === 'market' || screen.phase === 'garage' || screen.phase === 'inbox')) {

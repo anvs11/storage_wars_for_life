@@ -16,6 +16,10 @@ import type { LifeChoice, LifeState } from './life';
 import { personalCarOffer } from './personal-cars';
 import type { PersonalCar } from './personal-cars';
 import type { Stage5State } from './stage5-engine';
+import { payForTransport } from './stage5-engine';
+import { existingFleet, showroomCard, showroomView } from './showroom';
+import type { Fleet, ShowroomContext, ShowroomTarget } from './showroom';
+import { workModelOffer } from './transport';
 import type { Stage4State } from './stage4-engine';
 
 type PurchasedGame = Extract<Stage4State['game'], { phase: 'reveal' }>;
@@ -38,6 +42,7 @@ export interface Stage7State {
   readonly life?: LifeState;
   readonly personalCar?: PersonalCar;
   readonly cityVisit?: true;
+  readonly fleet?: Fleet;
 }
 
 type CalendarAction = 'waitUntilNextPeriod' | 'sleep' | 'wakeUp';
@@ -53,7 +58,10 @@ export type Stage7Command = Stage5Command | {
   [Action in FleaPacking]: { readonly type: Action; readonly expectedRevision: number; readonly itemId: string };
 }[FleaPacking] | { readonly type: 'resumeLot'; readonly expectedRevision: number; readonly lotNumber: number }
   | { readonly type: 'chooseLife'; readonly expectedRevision: number; readonly choice: LifeChoice }
-  | { readonly type: 'buyPersonalCar'; readonly expectedRevision: number; readonly car: PersonalCar };
+  | { readonly type: 'buyPersonalCar'; readonly expectedRevision: number; readonly car: PersonalCar }
+  | { readonly type: 'buyVehicle'; readonly expectedRevision: number; readonly target: ShowroomTarget; readonly tradeIn: boolean }
+  | { readonly type: 'activateVehicle'; readonly expectedRevision: number; readonly target: ShowroomTarget }
+  | { readonly type: 'toggleVehicleGoal'; readonly expectedRevision: number; readonly target: ShowroomTarget };
 
 export type Stage7Dispatch = (command: Stage7Command) => void;
 
@@ -65,6 +73,7 @@ export interface Stage7View {
   readonly vehicle: VehicleView;
   readonly personalCar?: PersonalCar;
   readonly personalOffer: ReturnType<typeof personalCarOffer>;
+  readonly showroom?: ReturnType<typeof showroomView>;
   readonly auctionTransport?: { readonly garageFree: number; readonly tutorialDelivery: boolean; readonly longLoad: string | null };
   readonly calendar: CalendarView;
   readonly flea: FleaView;
@@ -181,6 +190,51 @@ function giveBirthdayFlowers(state: Stage7State): Stage7State {
 
 const lifeFor = (state: Stage7State) => state.life ?? initialLife(state.base.base.relationshipStep);
 const hasCityVisit = (state: Stage7State) => state.cityVisit === true || isCityVisit(state.paidVisit?.record.venue);
+function showroomContext(state: Stage7State): ShowroomContext {
+  const game = state.base.base.game;
+  const work = transportFor(state.base);
+  return { work, ...(state.personalCar ? { personal: state.personalCar } : {}),
+    fleet: state.fleet ?? existingFleet(work, state.personalCar), bank: game.bank, status: game.status,
+    cityVisit: hasCityVisit(state), firstAuctionDone: 'lotNumber' in game && game.lotNumber > 0 };
+}
+
+type ShowroomCommand = Extract<Stage7Command, { target: ShowroomTarget }>;
+
+function updateShowroom(state: Stage7State, command: ShowroomCommand): Stage7State {
+  const { base } = state;
+  if ((base.room !== 'home' && base.room !== 'car') || base.base.game.phase !== 'hub' || base.base.relationshipOpen) return state;
+  const context = showroomContext(state);
+  const { fleet } = context;
+  const { target } = command;
+  const card = showroomCard(context, target);
+  if (!card.name) return state;
+  if (command.type === 'toggleVehicleGoal') {
+    if (target.category === 'work') {
+      const { workGoal, ...rest } = fleet;
+      return { ...state, fleet: workGoal === target.model ? rest : { ...rest, workGoal: target.model }, base: updateStage5(base, {}) };
+    }
+    const { personalGoal, ...rest } = fleet;
+    return { ...state, fleet: personalGoal === target.model ? rest : { ...rest, personalGoal: target.model }, base: updateStage5(base, {}) };
+  }
+  if (command.type === 'activateVehicle') {
+    if (!card.owned || card.active) return state;
+    if (target.category === 'personal') return { ...state, fleet, personalCar: target.model, base: updateStage5(base, {}) };
+    const work = fleet.work.find(entry => entry.model === target.model);
+    return work ? { ...state, fleet, base: updateStage5(base, { transport: work }) } : state;
+  }
+  if (command.type !== 'buyVehicle' || card.owned || card.blocked.length ||
+      (command.tradeIn ? !card.tradeIn || card.tradeMissing : card.fullMissing)) return state;
+  const price = card.price - (command.tradeIn ? card.tradeIn : 0);
+  if (target.category === 'personal') {
+    const kept = fleet.personal.filter(id => !command.tradeIn || id !== context.personal);
+    return { ...state, personalCar: target.model, cityVisit: true, fleet: { ...fleet, personal: [...kept, target.model] },
+      base: updateStage5(base, {}, context.bank - price) };
+  }
+  const offer = workModelOffer(target.model);
+  if (!offer) return state;
+  const kept = fleet.work.filter(entry => !command.tradeIn || entry.model !== context.work.model);
+  return { ...state, fleet: { ...fleet, work: [...kept, offer.next] }, base: payForTransport(base, offer.next, price) };
+}
 const displayCandidate = (base: Stage5State) => base.items.find(item => isTurntable(item) && item.condition !== 'damaged' &&
   !base.listings.some(({ itemId }) => itemId === item.id));
 
@@ -285,6 +339,11 @@ function reduce(state: Stage7State, command: Stage7Command): Stage7State {
   }
 
   if (calendar.period === 'night') return state;
+  if (command.type === 'buyVehicle' || command.type === 'activateVehicle' || command.type === 'toggleVehicleGoal') {
+    return updateShowroom(state, command);
+  }
+  if (state.fleet && (command.type === 'buyPersonalCar' || command.type === 'buyCapacity' && command.target === 'car' ||
+      command.type === 'upgradeTransport' && transportFor(base).model !== 'heavy')) return state;
   if (command.type === 'buyPersonalCar') {
     if (base.room !== 'home') return state;
     const game = profile.game;
@@ -390,6 +449,11 @@ function reduce(state: Stage7State, command: Stage7Command): Stage7State {
   const source = command.type === 'openRelationship' && base.room === 'home' ? { ...base, room: null } : base;
   const next = applyStage5(source, command, flea.items);
   if (next === source) return state;
+  if (command.type === 'upgradeTransport' && state.fleet && next.transport) {
+    const transport = next.transport;
+    return { ...state, base: next, fleet: { ...state.fleet,
+      work: state.fleet.work.map(entry => entry.model === transport.model ? transport : entry) } };
+  }
   const bonus = (bonusEntry || command.type === 'claimJob' && canUseBonusAuction(state)) && next.base.game.phase === 'inspection'
     ? { bonusAuctionUsed: true } as const : {};
 
@@ -446,6 +510,8 @@ export function getView(state: Stage7State): Stage7View {
     vehicle, jobUnlocked: state.jobUnlocked === true,
     ...(state.personalCar ? { personalCar: state.personalCar } : {}),
     personalOffer: personalCarOffer(state.personalCar, game.status, game.bank, hasCityVisit(state)),
+    ...(calendar.period !== 'night' && !state.paidVisit?.open && !flea.visit && (base.room === 'home' || base.room === 'car')
+      ? { showroom: showroomView(showroomContext(state)) } : {}),
     life: {
       score: lifeScore(life), canOpen: canOpenRelationship(game.status), ...(life.last ? { last: life.last } : {}),
       scene: event ? { id: event.id, title: event.title, line: event.line, choices: event.choices,

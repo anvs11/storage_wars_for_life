@@ -60,6 +60,51 @@ const neighbor = { type: 'openRelationship' } as const;
 const leaveNeighbor = { type: 'returnToHub' } as const;
 const lifeChoice = (choice: LifeChoice) => ({ type: 'chooseLife', choice } as const);
 
+it('витрина разрешает перепрыгнуть ступень и сохраняет владение, зачёт и независимые цели', () => {
+  const van = { category: 'work', model: 'van' } as const;
+  const pickup = { category: 'work', model: 'pickup' } as const;
+  const heavy = { category: 'work', model: 'heavy' } as const;
+  const mini = { category: 'personal', model: 'mini' } as const;
+  const range = { category: 'personal', model: 'range' } as const;
+  const start = play(funded(12000000, 48), home);
+  expect(getView(start).showroom).toMatchObject({ work: [{}, {}, {}, {}, {}], personal: [{}, {}, {}, {}, {}] });
+  expect(send(start, { type: 'buyVehicle', target: van, tradeIn: false })).toBe(start);
+  expect(send(start, { type: 'buyVehicle', target: range, tradeIn: false })).toBe(start);
+  const opened = play(start, auctions, enter, pass, homeFromLot, auctions, { type: 'spend', offerId: 'cinema' },
+    closePhoto, home, { type: 'toggleVehicleGoal', target: range }, { type: 'toggleVehicleGoal', target: heavy });
+  const purchased = reload(play(opened, { type: 'buyVehicle', target: van, tradeIn: false },
+    { type: 'buyVehicle', target: pickup, tradeIn: false },
+    { type: 'activateVehicle', target: van }, { type: 'buyVehicle', target: mini, tradeIn: false }));
+  const before = purchased.base.base.game.bank;
+  const trades = reload(play(purchased, { type: 'buyVehicle', target: range, tradeIn: true },
+    { type: 'buyVehicle', target: heavy, tradeIn: true }));
+  expect(trades.base.base.game.bank).toBe(before - 5170000 - 582000);
+  expect(trades.fleet).toMatchObject({ work: [{ model: 'scooter' }, { model: 'zhiguli' }, { model: 'pickup' }, { model: 'heavy' }],
+    personal: ['range'], personalGoal: 'range', workGoal: 'heavy' });
+  expect(send(trades, { type: 'activateVehicle', target: mini })).toBe(trades);
+  const alternate = reload(play(trades, { type: 'activateVehicle', target: pickup }));
+  expect(getView(alternate)).toMatchObject({ personalCar: 'range', vehicle: { model: 'pickup', capacity: 6 } });
+  expect(alternate.base.base.game.bank).toBe(trades.base.base.game.bank);
+  expect(alternate.base.base.game.status).toBe(trades.base.base.game.status);
+});
+
+it('сохраняет тюнинг и использованный вечерний выезд при смене активной машины', () => {
+  const heavy = { category: 'work', model: 'heavy' } as const;
+  const scooter = { category: 'work', model: 'scooter' } as const;
+  const start = play(funded(2000000), auctions, enter, pass, homeFromLot, { type: 'buyVehicle', target: heavy, tradeIn: false },
+    { type: 'navigate', room: 'car' }, { type: 'upgradeTransport', upgrade: 'reinforceSuspension' },
+    { type: 'upgradeTransport', upgrade: 'tuneEngine' }, { type: 'upgradeTransport', upgrade: 'highSideTrailer' },
+    { type: 'upgradeTransport', upgrade: 'containerTrailer' }, home, wait, wait, auctions, enter, pass, homeFromLot);
+  expect(start.bonusAuctionUsed).toBe(true);
+  const switched = reload(play(start, { type: 'activateVehicle', target: scooter }));
+  expect(getView(switched).vehicle).toMatchObject({ model: 'scooter', capacity: 2 });
+  const reactivated = reload(play(switched, { type: 'activateVehicle', target: heavy }));
+  expect(getView(reactivated)).toMatchObject({ vehicle: { model: 'heavy', capacity: 16, trailer: 2 },
+    calendar: { bonusAuction: 'used' } });
+  const hub = play(reactivated, auctions);
+  expect(send(hub, enter)).toBe(hub);
+});
+
 function lifeProfile(): Stage7State {
   const state = funded(85000, 18);
   const item = state.base.items[0]!;

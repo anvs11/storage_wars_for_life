@@ -41,6 +41,10 @@ const replacement: Partial<Record<TransportModel, Offer>> = {
   van: { id: 'buyHeavy', label: 'Купить тяжёлый пикап с прицепом', price: 690000, next: { model: 'heavy', engine: 0, trailer: 0 } },
 };
 
+export function workModelOffer(model: TransportModel): Offer | undefined {
+  return Object.values(replacement).find(offer => offer.next.model === model);
+}
+
 export function transportOffers(transport: TransportState): Offer[] {
   if (transport.model !== 'heavy') {
     const offer = replacement[transport.model];

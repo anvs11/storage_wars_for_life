@@ -4,9 +4,6 @@
 .life-home { margin-block: .85rem; }
 .life-home__record-player { width: min(100%, 170px); justify-self: start; }
 .life-warning { border-color: var(--amber); }
-.personal-garage[open] { display: grid; gap: .55rem; }
-.personal-garage summary { cursor: pointer; min-height: 44px; align-content: center; font-weight: 700; }
-.personal-garage__picture { width: min(100%, 280px); }
 
 @media (max-width: 640px) {
   .relationship:has(.life-story) .relationship__panel { order: -1; }

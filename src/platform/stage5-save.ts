@@ -44,7 +44,7 @@ function validListing(value: unknown, items: readonly OwnedItem[]) {
     new Set(all.map(thread => thread.buyer)).size === all.length;
 }
 
-function isTransport(value: unknown): value is TransportState {
+export function isTransport(value: unknown): value is TransportState {
   if (!isRecord(value) || !transportModels.some(model => model === value.model)) return false;
   return value.model === 'heavy'
     ? exactKeys(value, ['model', 'engine', 'trailer']) &&

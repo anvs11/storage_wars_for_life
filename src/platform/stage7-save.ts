@@ -10,7 +10,9 @@ import type { FamilyDate } from '../game/stage7-family';
 import { baggageItems, boxVolume, fleaCapacity, fleaMorning, initialFlea } from '../game/stage7-flea';
 import type { FleaReceipt, FleaSale } from '../game/stage7-flea';
 import { economyFor, transportFor } from '../game/stage5-engine';
-import { hasBonusAuction } from '../game/transport';
+import { hasBonusAuction, transportModels } from '../game/transport';
+import type { TransportState } from '../game/transport';
+import type { Fleet } from '../game/showroom';
 import { isTurntable, lifeChoices, lifeEvents, lifeStats, weekOf } from '../game/life';
 import type { LifeState } from '../game/life';
 import { personalCars } from '../game/personal-cars';
@@ -20,7 +22,7 @@ import { applyCommand, migrateStage5 } from '../game/stage7-engine';
 import type { ParkedLot, Stage7Command, Stage7State } from '../game/stage7-engine';
 import { areIds, BACKUP_KEY, exactKeys, isMoney, isRecord, loadSnapshot, SAVE_KEY, writeSnapshot } from './save';
 import type { LoadResult, SavedCommandResult, SaveResult, SaveStorage } from './save';
-import { decodeStage5, isOwned, isStage5State } from './stage5-save';
+import { decodeStage5, isOwned, isStage5State, isTransport } from './stage5-save';
 
 const version = 7;
 const previousPeriods = ['morning', 'afternoon', 'evening', 'night'] as const;
@@ -162,21 +164,42 @@ function isLife(value: unknown, { base, calendar }: CalendarSnapshot): value is 
   return promise.kind === 'camera' && exactKeys(promise, ['kind', 'due']) && seen.includes('request');
 }
 
+function isFleet(value: unknown, active: TransportState, personal: unknown, cityVisit: unknown, status: number): value is Fleet {
+  if (!isRecord(value) || !exactKeys(value, [
+    'work', 'personal', ...(Object.hasOwn(value, 'workGoal') ? ['workGoal'] : []),
+    ...(Object.hasOwn(value, 'personalGoal') ? ['personalGoal'] : []),
+  ])) return false;
+  if (!Array.isArray(value.work) || value.work.length > transportModels.length || !value.work.every(isTransport)) return false;
+  const models = value.work.map(entry => entry.model);
+  const stored = value.work.find(entry => entry.model === active.model);
+  if (!stored || !models.includes('scooter') || new Set(models).size !== models.length) return false;
+  if (active.model === 'heavy' && (stored.model !== 'heavy' || stored.engine !== active.engine || stored.trailer !== active.trailer)) return false;
+  const ids = personalCars.map(car => car.id);
+  const owned = value.personal;
+  if (!areIds(owned, ids) || (personal === undefined ? owned.length !== 0 :
+    typeof personal !== 'string' || !owned.includes(personal))) return false;
+  if (owned.length && (cityVisit !== true || personalCars.some(car => owned.includes(car.id) && status < car.status))) return false;
+  return (value.workGoal === undefined || transportModels.some(model => model === value.workGoal)) &&
+    (value.personalGoal === undefined || ids.some(id => id === value.personalGoal));
+}
+
 function readStage7(value: unknown, fleaLimit = fleaCapacity): Stage7State | null {
   if (!isRecord(value)) return null;
-  const { paidVisit = null, familyDate: savedDate, jobUnlocked, parkedLots, lastAuctionNumber, bonusAuctionUsed, life, cityVisit, personalCar, ...core } = value;
+  const { paidVisit = null, familyDate: savedDate, jobUnlocked, parkedLots, lastAuctionNumber, bonusAuctionUsed, life, cityVisit, personalCar, fleet, ...core } = value;
   if (lastAuctionNumber !== undefined && !isMoney(lastAuctionNumber)) return null;
   const snapshot = readCalendarSnapshot(core, fleaLimit, lastAuctionNumber, bonusAuctionUsed === true);
   if (!snapshot || (paidVisit !== null && !isVisitPhoto(paidVisit, snapshot))) return null;
   if (life !== undefined && !isLife(life, snapshot)) return null;
-  if (bonusAuctionUsed !== undefined && (bonusAuctionUsed !== true ||
-    (snapshot.calendar.period !== 'evening' && snapshot.calendar.period !== 'night') ||
-    !hasBonusAuction(transportFor(snapshot.base)))) return null;
   const game = snapshot.base.base.game;
   if (game.phase === 'prologue') return null;
   if ((cityVisit !== undefined && cityVisit !== true) || (cityVisit === true && snapshot.base.opening !== null)) return null;
   const car = personalCars.find(({ id }) => id === personalCar);
   if (personalCar !== undefined && (!car || cityVisit !== true || game.status < car.status)) return null;
+  const activeWork = transportFor(snapshot.base);
+  if (fleet !== undefined && (snapshot.base.opening !== null || !isFleet(fleet, activeWork, personalCar, cityVisit, game.status))) return null;
+  if (bonusAuctionUsed !== undefined && (bonusAuctionUsed !== true ||
+    (snapshot.calendar.period !== 'evening' && snapshot.calendar.period !== 'night') ||
+    !(fleet?.work.some(hasBonusAuction) ?? hasBonusAuction(activeWork)))) return null;
   const latestLot = lastAuctionNumber ?? game.lotNumber;
   if (lastAuctionNumber !== undefined && (game.phase !== 'reveal' || latestLot < game.lotNumber || latestLot > game.revision)) return null;
   if (parkedLots !== undefined) {
@@ -202,6 +225,7 @@ function readStage7(value: unknown, fleaLimit = fleaCapacity): Stage7State | nul
   return { ...snapshot, base: normalized, paidVisit, familyDate, ...(jobUnlocked === true ? { jobUnlocked } : {}),
     ...(life ? { life } : {}),
     ...(car ? { personalCar: car.id } : {}), ...(cityVisit === true ? { cityVisit } : {}),
+    ...(fleet ? { fleet } : {}),
     ...(bonusAuctionUsed === true ? { bonusAuctionUsed } : {}),
     ...(Array.isArray(parkedLots) ? { parkedLots } : {}), ...(lastAuctionNumber === undefined ? {} : { lastAuctionNumber }) };
 }

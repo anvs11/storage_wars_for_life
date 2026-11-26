@@ -1,0 +1,45 @@
+.showroom {
+  box-sizing: border-box;
+  width: min(calc(100% - 2rem), 1100px);
+  max-height: calc(100dvh - 2rem);
+  padding: clamp(12px, 2vw, 24px);
+  border: 1px solid #52635b;
+  border-radius: 16px;
+  background: #14201e;
+  color: #fff6df;
+  overflow: auto;
+}
+.showroom::backdrop { background: #060b09bd; }
+.showroom__header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .6rem; }
+.showroom__header h1 { font-size: clamp(1.35rem, 3vw, 2.2rem); }
+.showroom__tabs { display: flex; gap: .65rem; margin-block: 1rem; }
+.showroom__tabs button { flex: 1; }
+.showroom__layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); gap: 1rem; align-items: start; }
+.showroom__visual { display: grid; gap: .6rem; }
+.showroom__model {
+  display: grid;
+  place-items: center;
+  min-height: clamp(160px, 34vw, 370px);
+  padding: .75rem;
+  border-radius: 12px;
+  border: 1px solid #4d5d54;
+  background: radial-gradient(ellipse at 48% 36%, #465449, transparent 69%), linear-gradient(#1d2b25, #131916 70%, #333933);
+}
+.showroom__model img { display: block; width: 100%; max-height: 310px; object-fit: contain; filter: drop-shadow(0 6px 5px #0008); }
+.showroom__arrows { display: flex; align-items: center; justify-content: space-between; }
+.showroom__arrows button { min-width: 44px; font-size: 1.4rem; line-height: 1; }
+.showroom .garage__button { min-height: 44px; }
+.showroom__card { min-width: 0; gap: .6rem; padding: .9rem; }
+.showroom__card p { margin: 0; }
+.showroom__state { color: #cab891; font-size: .85rem; }
+.showroom__price { font-size: 1.25rem; font-weight: 750; color: #ffce79; }
+.showroom__confirm { padding: .75rem; display: grid; gap: .6rem; background: #2c3228; border: 1px solid #8e7753; border-radius: 8px; }
+.showroom__compare summary { cursor: pointer; min-height: 44px; align-content: center; }
+.showroom__model-heading:focus-within { outline-color: var(--amber); }
+@media (max-width: 740px) {
+  .showroom { width: calc(100% - 16px); max-height: calc(100dvh - 16px); padding: 10px; }
+  .showroom__layout { grid-template-columns: minmax(0, 1fr); gap: .65rem; }
+  .showroom__model img { max-height: min(24vh, 210px); }
+  .showroom__tabs { margin-block: .65rem; }
+  .showroom__header .garage__bank { padding: 6px; }
+}

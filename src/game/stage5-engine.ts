@@ -374,6 +374,17 @@ function repairItem(state: Stage5State, item: OwnedItem): Stage5State {
   }, state.base.game.bank - quote.price);
 }
 
+export function payForTransport(state: Stage5State, transport: TransportState, price: number): Stage5State {
+  const profile = state.base;
+  const game = profile.game;
+  if (profile.relationshipOpen || game.phase !== 'hub' || game.bank < price) return state;
+  const awarded = !game.assets.includes('car');
+  const paid = updateStage5(state, { transport }, game.bank - price, game.status + (awarded ? 5 : 0));
+  return awarded ? { ...paid, base: { ...profile, game: {
+    ...game, revision: paid.base.game.revision, bank: paid.base.game.bank, status: paid.base.game.status, assets: [...game.assets, 'car'],
+  } } } : paid;
+}
+
 function handleRoom(state: Stage5State, command: Stage5Command, boxed: readonly OwnedItem[]): Stage5State {
   switch (command.type) {
     case 'navigate':
@@ -396,15 +407,10 @@ function handleRoom(state: Stage5State, command: Stage5Command, boxed: readonly 
       if (state.room !== 'car') return state;
       const offer = transportOffers(transportFor(state)).find(({ id }) => id === command.upgrade);
       if (!offer || state.base.game.bank < offer.price) return state;
-      const profile = state.base;
-      const game = profile.game;
-      if (profile.relationshipOpen || game.phase !== 'hub') return state;
+      const game = state.base.game;
+      if (game.phase !== 'hub') return state;
       if (offer.id === 'restoreZhiguli' && game.lotNumber === 0) return state;
-      const awarded = !game.assets.includes('car');
-      const paid = updateStage5(state, { transport: offer.next }, game.bank - offer.price, game.status + (awarded ? 5 : 0));
-      return awarded ? { ...paid, base: { ...profile, game: {
-        ...game, revision: paid.base.game.revision, bank: paid.base.game.bank, status: paid.base.game.status, assets: [...game.assets, 'car'],
-      } } } : paid;
+      return payForTransport(state, offer.next, offer.price);
     }
     case 'repairItem': {
       const item = state.items.find(({ id }) => id === command.itemId);
