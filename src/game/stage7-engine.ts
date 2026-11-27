@@ -14,6 +14,8 @@ import { hasBonusAuction, requiresLongBed } from './transport';
 import { breakPromise, changeLife, initialLife, isTurntable, lifeScene, lifeScore, referralFor, weekOf } from './life';
 import { houseLevel } from './houses';
 import type { HouseLevel } from './houses';
+import { applyPhone, maintainPhone, phoneFor, phoneView, relationshipTier } from './phone';
+import type { PhoneCommand, PhoneState } from './phone';
 import type { LifeChoice, LifeState } from './life';
 import { personalCarOffer } from './personal-cars';
 import type { PersonalCar } from './personal-cars';
@@ -45,6 +47,7 @@ export interface Stage7State {
   readonly personalCar?: PersonalCar;
   readonly cityVisit?: true;
   readonly fleet?: Fleet;
+  readonly phone?: PhoneState;
 }
 
 type CalendarAction = 'waitUntilNextPeriod' | 'sleep' | 'wakeUp';
@@ -54,7 +57,7 @@ type PhotoAction = 'openVisitPhoto' | 'closeVisitPhoto';
 type SimpleAction = CalendarAction | FleaNavigation | PhotoAction | 'giveBirthdayFlowers' | 'authorizeJob' | 'parkLot'
   | 'displayTurntable' | 'retrieveTurntable' | 'openReferral';
 
-export type Stage7Command = Stage5Command | {
+export type Stage7Command = Stage5Command | PhoneCommand | {
   [Action in SimpleAction]: { readonly type: Action; readonly expectedRevision: number };
 }[SimpleAction] | {
   [Action in FleaPacking]: { readonly type: Action; readonly expectedRevision: number; readonly itemId: string };
@@ -83,6 +86,7 @@ export interface Stage7View {
   readonly paidVisit: VisitPhoto | null;
   readonly familyDate: FamilyDateView | null;
   readonly life: LifeView;
+  readonly phone: ReturnType<typeof phoneView>;
 }
 
 interface LifeView {
@@ -314,13 +318,15 @@ function maintainLife(state: Stage7State, next: Stage7State): Stage7State {
 }
 
 export function applyCommand(state: Stage7State, command: Stage7Command): Stage7State {
-  return maintainLife(state, reduce(state, command));
+  return maintainPhone(state, maintainLife(state, reduce(state, command)), command);
 }
 
 function reduce(state: Stage7State, command: Stage7Command): Stage7State {
   const { base, calendar, flea, paidVisit, familyDate } = state;
   const profile = base.base;
   if (profile.game.revision !== command.expectedRevision) return state;
+  if (command.type === 'phone') return applyPhone(state, command);
+  if (command.type === 'confirmMoveIn' && relationshipTier(phoneFor(state)) !== 'Близкие отношения') return state;
   if (command.type === 'authorizeJob') {
     return profile.game.phase === 'recovery' && !state.jobUnlocked
       ? { ...state, jobUnlocked: true, base: updateStage5(base, {}) } : state;
@@ -385,7 +391,7 @@ function reduce(state: Stage7State, command: Stage7Command): Stage7State {
     return !displayId && item ? { ...state, base: updateStage5(base, {}), life: { ...rest, displayId: item.id } } : state;
   }
   if (command.type === 'openReferral') {
-    if (!profile.relationshipOpen) return state;
+    if (!profile.relationshipOpen || state.phone?.order || state.phone?.orderWeek === weekOf(calendar.day)) return state;
     const life = lifeFor(state);
     const referral = referralFor(life, base, calendar.day);
     if (!referral) return state;
@@ -516,18 +522,21 @@ export function getView(state: Stage7State): Stage7View {
   const vehicle = vehicleFor(base);
   const life = lifeFor(state);
   const event = base.base.relationshipOpen ? lifeScene(life, base, calendar.day, calendar.period === 'evening') : null;
-  const referral = base.base.relationshipOpen ? referralFor(life, base, calendar.day) : null;
+  const referral = base.base.relationshipOpen && !state.phone?.order && state.phone?.orderWeek !== weekOf(calendar.day)
+    ? referralFor(life, base, calendar.day) : null;
   const homeImproved = game.assets.includes('home');
   const displayed = base.items.find(({ id }) => id === life.displayId);
   const candidate = homeImproved && !displayed ? displayCandidate(base) : null;
   const promised = base.items.find(({ id }) => id === life.promise?.itemId);
   const stage5 = getStage5View(base);
-  const screen = stage5.phase === 'hub' ? { ...stage5, offers: stage5.offers.filter(({ id }) => id !== 'home') } : stage5;
+  const screen = stage5.phase === 'hub' ? { ...stage5, offers: stage5.offers.filter(({ id }) => id !== 'home') }
+    : stage5.phase === 'relationship' && relationshipTier(phoneFor(state)) !== 'Близкие отношения'
+      ? { ...stage5, allowedActions: stage5.allowedActions.filter(action => action !== 'confirmMoveIn') } : stage5;
   const homeScreen = screen.phase === 'home' && state.personalCar ? { ...screen, personalCar: state.personalCar } : screen;
   return {
     screen: displayed && (screen.phase === 'garage' || screen.phase === 'market')
       ? { ...screen, items: screen.items.filter(({ id }) => id !== displayed.id) } : homeScreen,
-    vehicle, jobUnlocked: state.jobUnlocked === true,
+    vehicle, phone: phoneView(state), jobUnlocked: state.jobUnlocked === true,
     ...(state.personalCar ? { personalCar: state.personalCar } : {}),
     personalOffer: personalCarOffer(state.personalCar, game.status, game.bank, hasCityVisit(state)),
     ...(calendar.period !== 'night' && !state.paidVisit?.open && !flea.visit && (base.room === 'home' || base.room === 'car')

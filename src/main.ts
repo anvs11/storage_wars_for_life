@@ -8,6 +8,7 @@ import { mountStage7 } from './ui/stage7';
 import { mountFirstSteps } from './ui/first-steps';
 import { createShowroom } from './ui/showroom';
 import { createHouseShowroom } from './ui/house-showroom';
+import { createPhone } from './ui/phone';
 
 const tipsPreference = 'storage-wars.hide-tips';
 
@@ -53,6 +54,7 @@ function start(root: HTMLElement): void {
       notify(result.message, { label: 'Повторить действие', run: () => dispatch(command) });
       showroom.error(result.message);
       houseShowroom.error(result.message);
+      phone.error(result.message);
       return;
     }
     const visit = result.state.paidVisit?.record;
@@ -70,6 +72,7 @@ function start(root: HTMLElement): void {
   };
   const showroom = createShowroom(root, dispatch);
   const houseShowroom = createHouseShowroom(root, dispatch);
+  const phone = createPhone(root, dispatch);
 
   function show(nextState: Stage7State, message = '', animateVisit = false): void {
     state = nextState;
@@ -88,6 +91,7 @@ function start(root: HTMLElement): void {
     });
     showroom.update(view);
     houseShowroom.update(view);
+    phone.update(view);
     if (nextState.base.opening !== null) return;
     const menu = element('details', 'game-menu');
     const tipsToggle = actionButton('', 'garage__button', () => setTips(!tipsHidden, true));

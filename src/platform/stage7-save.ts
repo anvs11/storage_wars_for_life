@@ -13,6 +13,10 @@ import { economyFor, transportFor } from '../game/stage5-engine';
 import { hasBonusAuction, trailerIds, transportModels } from '../game/transport';
 import type { TransportState } from '../game/transport';
 import type { Fleet } from '../game/showroom';
+import { initialPhone, orderBudget, phoneChoices } from '../game/phone';
+import type { PhoneState } from '../game/phone';
+import { phoneTopics } from '../game/phone-dialogue';
+import type { PhoneTopic } from '../game/phone-dialogue';
 import { isTurntable, lifeChoices, lifeEvents, lifeStats, weekOf } from '../game/life';
 import type { LifeState } from '../game/life';
 import { personalCars } from '../game/personal-cars';
@@ -24,7 +28,7 @@ import { areIds, BACKUP_KEY, exactKeys, isMoney, isRecord, loadSnapshot, SAVE_KE
 import type { LoadResult, SavedCommandResult, SaveResult, SaveStorage } from './save';
 import { decodeStage5, isOwned, isStage5State, isTransport } from './stage5-save';
 
-const version = 7;
+const version = 8;
 const previousPeriods = ['morning', 'afternoon', 'evening', 'night'] as const;
 const minimumPeriod = (period: Period): number => period === 'lateAfternoon' ? 2 : previousPeriods.indexOf(period);
 
@@ -101,8 +105,9 @@ function readCalendarSnapshot(value: Record<string, unknown>, fleaLimit: number,
 
 function isVisitPhoto(value: unknown, snapshot: CalendarSnapshot): value is VisitPhoto {
   if (!isRecord(value) || !exactKeys(value, ['record', 'open']) || typeof value.open !== 'boolean' ||
-      !isRecord(value.record) || !exactKeys(value.record, ['venue', 'together', 'day', 'outing', 'spent', 'statusGain', 'revision'])) return false;
-  const { venue, together, day, outing, spent, statusGain, revision } = value.record;
+      !isRecord(value.record) || !exactKeys(value.record, ['venue', 'together', 'day', 'outing', 'spent', 'statusGain', 'revision',
+        ...(Object.hasOwn(value.record, 'viaPhone') ? ['viaPhone'] : [])])) return false;
+  const { venue, together, day, outing, spent, statusGain, revision, viaPhone } = value.record;
   const { base, calendar, flea } = snapshot;
   const profile = base.base;
   if (!isVenue(venue) || typeof together !== 'boolean' || !isMoney(day) || day < 1 || day > calendar.day ||
@@ -115,7 +120,8 @@ function isVisitPhoto(value: unknown, snapshot: CalendarSnapshot): value is Visi
   const elapsed = (calendar.day - day) * previousPeriods.length + minimumPeriod(calendar.period) - paymentPeriod;
   if (elapsed < 0 || profile.game.revision - revision < elapsed ||
       day - 1 > Math.floor((revision - paymentPeriod) / previousPeriods.length)) return false;
-  if (together && (
+  if (viaPhone !== undefined && (viaPhone !== true || !together || venue !== 'cinema' || profile.relationshipStep === 'unmet')) return false;
+  if (together && !viaPhone && (
     venue === 'cinema' ? !['cinemaVisited', 'dinnerVisited', 'movedIn'].includes(profile.relationshipStep)
       : venue !== 'restaurant' || !['dinnerVisited', 'movedIn'].includes(profile.relationshipStep)
   )) return false;
@@ -124,7 +130,7 @@ function isVisitPhoto(value: unknown, snapshot: CalendarSnapshot): value is Visi
   if (revision < profile.game.revision) return base.room === 'home';
   // В v6 дневная поездка переводила игрока сразу на вечер.
   const legacyEvening = outing === 'afternoon' && calendar.period === 'evening';
-  return base.room === null && profile.relationshipOpen === together && day === calendar.day &&
+  return base.room === null && profile.relationshipOpen === (together && !viaPhone) && day === calendar.day &&
     (calendar.period === periodAfterPayment || legacyEvening);
 }
 
@@ -191,13 +197,52 @@ function isFleet(value: unknown, active: TransportState, personal: unknown, city
     (value.trailerGoal === undefined || trailerIds.some(id => id === value.trailerGoal));
 }
 
-function readStage7(value: unknown, fleaLimit = fleaCapacity): Stage7State | null {
+function isPhone(value: unknown, { base, calendar }: CalendarSnapshot): value is PhoneState {
+  if (!isRecord(value)) return false;
+  const { scores, consent, milestone, messages, read, call, meeting, order, contact, orderWeek,
+    callDay, talkDay, meetDay, penaltyDay, socialMeeting, conflict, ...extra } = value;
+  const revision = base.base.game.revision;
+  const validId = (id: unknown) => isMoney(id) && id > 0 && id <= revision;
+  const pastDay = (day: unknown) => isMoney(day) && day > 0 && day <= calendar.day;
+  const validDue = (day: unknown, horizon: number) => isMoney(day) && day > 0 && day - calendar.day <= horizon;
+  if (Object.keys(extra).length || !isRecord(scores) || !exactKeys(scores, lifeStats) ||
+      !lifeStats.every(key => { const score = scores[key]; return isMoney(score) && score <= 100; }) ||
+      !['friends', 'mutual', 'close'].some(tier => tier === consent) || typeof milestone !== 'boolean' ||
+      consent === 'close' && !milestone || !Array.isArray(messages) || messages.length > 24 ||
+      !isMoney(read) || read > revision || [contact, socialMeeting, conflict].some(flag => flag !== undefined && flag !== true) ||
+      [callDay, talkDay, meetDay, penaltyDay].some(day => day !== undefined && !pastDay(day)) ||
+      orderWeek !== undefined && (!isMoney(orderWeek) || orderWeek > weekOf(calendar.day) || contact !== true)) return false;
+  let last = 0;
+  for (const entry of messages as unknown[]) {
+    if (!isRecord(entry) || !exactKeys(entry, ['id', 'day', 'topic', 'variant', ...(Object.hasOwn(entry, 'choice') ? ['choice'] : [])]) ||
+        !isMoney(entry.id) || entry.id <= last || !validId(entry.id) || !pastDay(entry.day) ||
+        typeof entry.topic !== 'string' || !Object.hasOwn(phoneTopics, entry.topic) ||
+        !isMoney(entry.variant) || entry.variant >= phoneTopics[entry.topic as PhoneTopic].length ||
+        entry.choice !== undefined && !phoneChoices.some(choice => choice === entry.choice)) return false;
+    last = entry.id;
+  }
+  if (call !== undefined && (!isRecord(call) ||
+      !exactKeys(call, ['id', 'due', ...(Object.hasOwn(call, 'promised') ? ['promised'] : []), ...(Object.hasOwn(call, 'hidden') ? ['hidden'] : [])]) ||
+      !validId(call.id) || call.due !== null && !validDue(call.due, 1) ||
+      call.hidden !== undefined && call.hidden !== true || call.promised !== undefined && (call.promised !== true || call.hidden !== true))) return false;
+  if (meeting !== undefined && (!isRecord(meeting) ||
+      !exactKeys(meeting, ['id', 'kind', 'day', ...(Object.hasOwn(meeting, 'moved') ? ['moved'] : [])]) ||
+      !validId(meeting.id) || !validDue(meeting.day, 1) || meeting.kind !== 'walk' && meeting.kind !== 'cinema' ||
+      meeting.moved !== undefined && meeting.moved !== true)) return false;
+  return order === undefined || (contact === true && isRecord(order) &&
+    exactKeys(order, ['id', 'itemId', 'itemName', 'price', 'due']) && validId(order.id) &&
+    typeof order.itemId === 'string' && typeof order.itemName === 'string' && order.itemName.length > 0 &&
+    isMoney(order.price) && order.price > 0 && order.price <= orderBudget && validDue(order.due, 3));
+}
+
+function readStage7(value: unknown, fleaLimit = fleaCapacity, legacyPhone = false): Stage7State | null {
   if (!isRecord(value)) return null;
-  const { paidVisit = null, familyDate: savedDate, jobUnlocked, parkedLots, lastAuctionNumber, bonusAuctionUsed, life, cityVisit, personalCar, fleet, ...core } = value;
+  const { paidVisit = null, familyDate: savedDate, jobUnlocked, parkedLots, lastAuctionNumber, bonusAuctionUsed, life, cityVisit, personalCar, fleet, phone, ...core } = value;
   if (lastAuctionNumber !== undefined && !isMoney(lastAuctionNumber)) return null;
   const snapshot = readCalendarSnapshot(core, fleaLimit, lastAuctionNumber, bonusAuctionUsed === true);
   if (!snapshot || (paidVisit !== null && !isVisitPhoto(paidVisit, snapshot))) return null;
   if (life !== undefined && !isLife(life, snapshot)) return null;
+  if (phone !== undefined && (legacyPhone || !isPhone(phone, snapshot))) return null;
   const game = snapshot.base.base.game;
   if (game.phase === 'prologue') return null;
   if ((cityVisit !== undefined && cityVisit !== true) || (cityVisit === true && snapshot.base.opening !== null)) return null;
@@ -230,12 +275,13 @@ function readStage7(value: unknown, fleaLimit = fleaCapacity): Stage7State | nul
   if (!isFamilyDate(familyDate, snapshot)) return null;
   const reviews = snapshot.base.reviews;
   const normalized = reviews ? { ...snapshot.base, reviews: reviews.map(updateLegacyReview) } : snapshot.base;
-  return { ...snapshot, base: normalized, paidVisit, familyDate, ...(jobUnlocked === true ? { jobUnlocked } : {}),
+  const state: Stage7State = { ...snapshot, base: normalized, paidVisit, familyDate, ...(jobUnlocked === true ? { jobUnlocked } : {}),
     ...(life ? { life } : {}),
     ...(car ? { personalCar: car.id } : {}), ...(cityVisit === true ? { cityVisit } : {}),
-    ...(fleet ? { fleet } : {}),
+    ...(fleet ? { fleet } : {}), ...(phone ? { phone } : {}),
     ...(bonusAuctionUsed === true ? { bonusAuctionUsed } : {}),
     ...(Array.isArray(parkedLots) ? { parkedLots } : {}), ...(lastAuctionNumber === undefined ? {} : { lastAuctionNumber }) };
+  return legacyPhone && (life || normalized.base.relationshipStep !== 'unmet') ? { ...state, phone: initialPhone(state) } : state;
 }
 
 function decode(serialized: string | null): Stage7State | null {
@@ -244,10 +290,13 @@ function decode(serialized: string | null): Stage7State | null {
     const value: unknown = JSON.parse(serialized);
     if (isRecord(value)) {
       if (value.version === version) return readStage7(value.state);
-      if (value.version === 6) return readStage7(value.state, 4);
+      if (value.version === 7) return readStage7(value.state, fleaCapacity, true);
+      if (value.version === 6) return readStage7(value.state, 4, true);
     }
     const previous = decodeStage5(serialized);
-    return previous ? migrateStage5(previous) : null;
+    if (!previous) return null;
+    const migrated = migrateStage5(previous);
+    return previous.base.relationshipStep === 'unmet' ? migrated : { ...migrated, phone: initialPhone(migrated) };
   } catch {
     return null;
   }

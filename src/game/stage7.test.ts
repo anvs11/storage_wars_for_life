@@ -5,10 +5,13 @@ import { applySavedCommand, load, save } from '../platform/stage7-save';
 import { outingAvailable } from './stage7-calendar';
 import { marketOffers } from './market-dialogue';
 import { applyCommand, getView, migrateStage5, newGame } from './stage7-engine';
-import { newGame as newStage5 } from './stage5-engine';
+import { applyCommand as actStage5, newGame as newStage5 } from './stage5-engine';
 import type { Stage7Command, Stage7State } from './stage7-engine';
 import type { OwnedItem } from './stage5-engine';
 import type { LifeChoice } from './life';
+import { initialPhone, phoneChoices, phoneFor, relationshipTier } from './phone';
+import { phoneTopics } from './phone-dialogue';
+import type { PhoneChoice } from './phone';
 
 type Action<C = Stage7Command> = C extends Stage7Command ? Omit<C, 'expectedRevision'> : never;
 const revision = (state: Stage7State) => getView(state).screen.revision;
@@ -59,6 +62,118 @@ const closePhoto = { type: 'closeVisitPhoto' } as const;
 const neighbor = { type: 'openRelationship' } as const;
 const leaveNeighbor = { type: 'returnToHub' } as const;
 const lifeChoice = (choice: LifeChoice) => ({ type: 'chooseLife', choice } as const);
+const phoneChoice = (choice: PhoneChoice, target?: number) => ({ type: 'phone', choice, ...(target === undefined ? {} : { target }) } as const);
+
+it('мигрирует показатели v7, сохраняет отсчёт и поднимает резерв при повреждении телефона', () => {
+  const legacy = lifeProfile();
+  const original = { ...legacy, life: { ...initialLegacyLife, seen: [] as const } };
+  const storage = memory();
+  storage.setItem(SAVE_KEY, JSON.stringify({ version: 7, state: original }));
+  const decoded = load(storage);
+  if (decoded.kind !== 'loaded') throw new Error(decoded.kind);
+  expect(decoded.state.base).toEqual(original.base);
+  expect(decoded.state.phone?.scores).toEqual({ trust: 44, interest: 58, reliability: 72, memories: 86 });
+  expect(decoded.state.phone?.consent).toBe('friends');
+  const active = play(decoded.state, auctions, neighbor, lifeChoice('talk'), leaveNeighbor);
+  expect(save(storage, active).ok).toBe(true);
+  const value = JSON.parse(storage.getItem(SAVE_KEY)!);
+  value.state.phone.scores.trust = 101;
+  storage.setItem(SAVE_KEY, JSON.stringify(value));
+  expect(load(storage)).toMatchObject({ kind: 'recovered', state: { base: original.base } });
+});
+
+const initialLegacyLife = { trust: 1, interest: 2, reliability: 3, memories: 4 };
+
+it('активирует входящий звонок после выхода со сцены и штрафует только за нарушенное обещание', () => {
+  const scene = play(funded(0, 8), home, neighbor, lifeChoice('leave'));
+  const queued = reload(scene);
+  expect(getView(queued).phone).toMatchObject({ available: false, call: { due: null } });
+  const hub = reload(play(queued, leaveNeighbor));
+  const { id, due } = getView(hub).phone.call!;
+  expect(due).toBe(2);
+  const hidden = reload(play(hub, phoneChoice('skipCall', id)));
+  expect(getView(hidden).phone.call).toMatchObject({ id, hidden: true, due });
+  expect(send(hidden, phoneChoice('answer', id + 1))).toBe(hidden);
+  const received = play(hidden, phoneChoice('answer', id));
+  expect(send(received, phoneChoice('answer', id))).toBe(received);
+  const ignored = reachMorning(play(hidden, home), 3);
+  expect(getView(ignored).phone.score).toBe(getView(hidden).phone.score);
+  const promised = play(hidden, phoneChoice('callBackLater', id), home);
+  const missed = reachMorning(promised, 3);
+  expect(getView(missed).phone.conflict).toBe(true);
+  expect(getView(missed).phone.score).toBeLessThan(getView(promised).phone.score);
+  expect(missed.base.base.game.status).toBe(promised.base.base.game.status);
+  const reconciled = reload(play(missed, phoneChoice('apologize')));
+  expect(getView(reconciled).phone.conflict).toBe(false);
+  expect(send(reconciled, phoneChoice('apologize'))).toBe(reconciled);
+});
+
+it('даёт бесплатную прогулку при нулевом банке и требует явных решений о сближении', () => {
+  const start = play(funded(0, 8), home, neighbor, lifeChoice('leave'), leaveNeighbor);
+  expect(getView(start).phone).toMatchObject({ score: 30, tier: 'Дружба', canBook: true, canCinema: false });
+  const scheduled = play(start, phoneChoice('bookWalk'));
+  const { id } = getView(scheduled).phone.meeting!;
+  const moved = play(scheduled, phoneChoice('reschedule', id));
+  expect(send(moved, phoneChoice('reschedule', id))).toBe(moved);
+  expect(send(moved, phoneChoice('attend', id))).toBe(moved);
+  const canceled = play(moved, phoneChoice('cancel', id));
+  expect(getView(canceled).phone.score).toBe(30);
+  let day = play(canceled, home);
+  for (let index = 0; index < 5; index++) {
+    const plan = play(day, phoneChoice('bookWalk'));
+    day = play(plan, phoneChoice('attend', getView(plan).phone.meeting!.id));
+    if (index < 4) day = reachMorning(day, day.calendar.day + 1);
+  }
+  expect(day.base.base.game.bank).toBe(0);
+  expect(getView(day).phone.score).toBeGreaterThanOrEqual(80);
+  expect(getView(day).phone.tier).toBe('Дружба');
+  expect(send(day, phoneChoice('commit'))).toBe(day);
+  const close = reload(play(day, phoneChoice('mutual'), phoneChoice('commit'), phoneChoice('introduce')));
+  expect(getView(close).phone).toMatchObject({ tier: 'Близкие отношения', contact: true });
+  const friends = play(close, phoneChoice('friendship'));
+  expect(getView(friends).phone).toMatchObject({ tier: 'Дружба', contact: true });
+  expect(friends.base.base.game.status).toBe(start.base.base.game.status + 2);
+});
+
+it('проводит платное кино через досуг и сохраняет фото', () => {
+  const start = play(funded(900, 8), home, neighbor, lifeChoice('talk'), leaveNeighbor, phoneChoice('bookCinema'));
+  const paid = reload(play(start, phoneChoice('attend', getView(start).phone.meeting!.id)));
+  expect(getView(paid)).toMatchObject({ screen: { bank: 0 },
+    paidVisit: { open: true, record: { venue: 'cinema', together: true, spent: 900 } }, calendar: { period: 'afternoon' } });
+  expect(paid.base.base.game.status).toBe(start.base.base.game.status + 2);
+});
+
+it('закрывает запрос Леры и объявление одной транзакцией при независимом доступе по рейтингу', () => {
+  const fixture = lifeProfile();
+  const { base } = fixture;
+  const profile = base.base;
+  if (profile.relationshipOpen || profile.game.phase !== 'hub') throw new Error('Ожидается гараж');
+  const start = play({ ...fixture, base: { ...base, base: { ...profile,
+    game: { ...profile.game, status: 45 } } } }, home, phoneChoice('introduce'));
+  const order = getView(start).phone.order!;
+  expect(order.price).toBe(4600);
+  const withListing = play(start, { type: 'navigate', room: 'market' }, { type: 'publish', itemId: order.itemId, price: 5000 });
+  expect(withListing.base.listings.some(listing => listing.itemId === order.itemId)).toBe(true);
+  const sold = reload(play(withListing, phoneChoice('sell', order.id)));
+  expect(sold.base.items.some(item => item.id === order.itemId)).toBe(false);
+  expect(sold.base.listings.some(listing => listing.itemId === order.itemId)).toBe(false);
+  expect(sold.base.base.game.bank).toBe(withListing.base.base.game.bank + 4600);
+  expect(send(sold, phoneChoice('sell', order.id))).toBe(sold);
+});
+
+it('держит схему локальных реплик полной и проверяет точные пороги', () => {
+  expect(Object.values(phoneTopics).flat()).toHaveLength(36);
+  expect(new Set(Object.values(phoneTopics).flat()).size).toBe(36);
+  expect(new Set(phoneChoices).size).toBe(phoneChoices.length);
+  const set = (score: number) => ({ trust: score, interest: score, reliability: score, memories: score });
+  const phone = { ...initialPhone(funded(0)), milestone: true, consent: 'close' as const };
+  expect(relationshipTier({ ...phone, scores: set(24) })).toBe('Охлаждение');
+  expect(relationshipTier({ ...phone, scores: set(25) })).toBe('Дружба');
+  expect(relationshipTier({ ...phone, scores: set(50) })).toBe('Взаимная симпатия');
+  expect(relationshipTier({ ...phone, scores: set(79) })).toBe('Взаимная симпатия');
+  expect(relationshipTier({ ...phone, scores: set(80) })).toBe('Близкие отношения');
+  expect(phoneFor(funded(0)).scores).toEqual(set(30));
+});
 
 it('витрина разрешает перепрыгнуть ступень и сохраняет владение, зачёт и независимые цели', () => {
   const van = { category: 'work', model: 'van' } as const;
@@ -566,7 +681,7 @@ it('переносит незавершённые торги v5 в утро и �
   expect(load(storage)).toEqual({ kind: 'loaded', state: migrated });
   const expectedRevision = revision(migrated);
   expect(applySavedCommand(storage, migrated, { type: 'pass', expectedRevision }).kind).toBe('saved');
-  expect(JSON.parse(storage.getItem(SAVE_KEY)!).version).toBe(7);
+  expect(JSON.parse(storage.getItem(SAVE_KEY)!).version).toBe(8);
   expect(JSON.parse(storage.getItem(BACKUP_KEY)!).version).toBe(5);
   storage.setItem(SAVE_KEY, JSON.stringify({ version: 6, state: { ...bidding, calendar: { day: 1, period: 'evening' } } }));
   expect(load(storage)).toMatchObject({ kind: 'recovered', state: migrated });
@@ -650,9 +765,14 @@ it('проверяет нехватку рубля и отдельно позд�
 });
 
 it('добавляет дату к сохранённому эпилогу v5 и прежнему v6 с сохранением текущей недели', () => {
-  const finale = play(funded(50000, 18), home, { type: 'buyHouse', level: 2 }, auctions, { type: 'spend', offerId: 'car' },
+  const beforeMove = play(funded(50000, 18), home, { type: 'buyHouse', level: 2 }, auctions, { type: 'spend', offerId: 'car' },
     openStory, meetNeighbor, { type: 'buyFlowers' }, { type: 'inviteToCinema' }, closePhoto,
-    { type: 'inviteToDinner' }, closePhoto, { type: 'confirmMoveIn' }, leaveStory, home);
+    { type: 'inviteToDinner' }, closePhoto);
+  expect(send(beforeMove, { type: 'confirmMoveIn' })).toBe(beforeMove);
+  const { phone: _phone, ...legacy } = beforeMove;
+  const moved = actStage5(legacy.base, { type: 'confirmMoveIn', expectedRevision: revision(beforeMove) });
+  expect(moved).not.toBe(legacy.base);
+  const finale = play({ ...legacy, base: moved }, leaveStory, home);
   const storage = memory();
   expect(saveStage5(storage, finale.base)).toEqual({ ok: true });
   const migrated = load(storage);
@@ -660,7 +780,7 @@ it('добавляет дату к сохранённому эпилогу v5 и
   expect(getView(migrated.state)).toMatchObject({ familyDate: { day: 7, affection: 0, step: 'movedIn' } });
   expect(getView(play(migrated.state, openStory)).screen).toMatchObject({ phase: 'relationship', step: 'movedIn' });
 
-  const { familyDate: _missing, ...old } = reachMorning(finale, 6);
+  const { familyDate: _missing, phone: _social, ...old } = reachMorning(finale, 6);
   storage.setItem(SAVE_KEY, JSON.stringify({ version: 6, state: old }));
   expect(load(storage)).toMatchObject({ kind: 'loaded', state: { calendar: { day: 6 }, familyDate: { day: 14, outcome: 'pending' } } });
 });

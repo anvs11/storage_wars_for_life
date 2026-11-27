@@ -100,7 +100,7 @@ it('читает v1–v3 и переводит деньги ровно один 
       calendar: { day: 1, period: 'morning' }, familyDate: null, paidVisit: null, flea: { items: [] } });
     const homeAgain = play(storage, migrated, { type: 'pass' }, { type: 'nextLot' });
     expect(getView(homeAgain)).toMatchObject({ screen: { phase: 'home', bank: 10000 }, calendar: { period: 'afternoon' } });
-    expect(JSON.parse(storage.getItem(SAVE_KEY)!).version, `v${index + 1}`).toBe(7);
+    expect(JSON.parse(storage.getItem(SAVE_KEY)!).version, `v${index + 1}`).toBe(8);
   }
 });
 

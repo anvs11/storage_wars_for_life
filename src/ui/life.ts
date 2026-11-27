@@ -22,10 +22,13 @@ export function mountLife(root: HTMLElement, view: Stage7View, dispatch: Stage7D
     title.tabIndex = -1;
     story.append(title);
     const meter = element('progress', 'life-meter');
-    meter.max = 20;
-    meter.value = life.score;
+    meter.max = 100;
+    meter.value = view.phone.score;
     meter.setAttribute('aria-label', 'Отношения');
-    story.append(element('p', '', `Отношения · ${life.score} из 20`), meter);
+    story.append(element('p', '', `${view.phone.tier} · ${view.phone.score} из 100`), meter);
+    if (screen.nextGoal?.action === 'confirmMoveIn' && !screen.allowedActions.includes('confirmMoveIn')) {
+      story.append(element('p', 'hub__detail', 'Прежде чем съезжаться, поговорите о близких отношениях в телефоне.'));
+    }
     if (life.last) story.append(element('p', 'hub__detail', choiceLabels[life.last]));
     if (life.scene) {
       const oldReply = panel?.querySelector('.relationship__reply');

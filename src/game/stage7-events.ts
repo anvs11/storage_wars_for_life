@@ -8,6 +8,7 @@ export type VisitVenue = Exclude<OfferId, 'home' | 'car'>;
 export interface VisitRecord {
   readonly venue: VisitVenue;
   readonly together: boolean;
+  readonly viaPhone?: true;
   readonly day: number;
   readonly outing: OutingPeriod;
   readonly spent: number;
