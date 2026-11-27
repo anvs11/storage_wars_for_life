@@ -5,7 +5,7 @@ import type { Stage3HubState } from './stage3-engine';
 import type { Stage4State } from './stage4-engine';
 import { applyCommand as applyBase, getView as baseView, newGame as newBase } from './stage4-engine';
 import { migrateLot, migrateReceipt, migratedEconomy, rubleEconomy, toRubles } from './stage5-economy';
-import type { GarageItemView, ListingView, Room, Stage5Command, Stage5View, SaleView, SellerReview } from './stage5-contract';
+import type { GarageItemView, ListingView, MarketOffer, Room, Stage5Command, Stage5View, SaleView, SellerReview } from './stage5-contract';
 import { firstAuctionEconomy, stage6Economy } from './stage6-auctions';
 import { marketOffers, newMarketOffer, reviewFor, updateMarketOffer } from './market-dialogue';
 import { prologueFrames } from './stage5-contract';
@@ -553,14 +553,21 @@ export function applyCommand(state: Stage5State, command: Stage5Command, boxed: 
   return { ...state, base, room, legacyLot: state.legacyLot && !returned, lotEdition: edition };
 }
 
+function publicOffer({ ceiling: _ceiling, ...offer }: MarketOffer): Omit<MarketOffer, 'ceiling'> {
+  return offer;
+}
+
 export function getView(state: Stage5State): Stage5View {
   const game = state.base.game;
   const { bank, revision } = game;
   if (state.opening !== null) return { phase: 'opening', bank, revision, frame: state.opening, vehicle: vehicleFor(state) };
   if (state.room !== null) {
     return {
-      phase: state.room, bank, revision, items: state.items.map((item) => itemView(item, bank, state.workshop)), listings: state.listings,
-      unread: state.listings.flatMap(marketOffers).filter(({ unread }) => unread).length,
+      phase: state.room, bank, revision, items: state.items.map((item) => itemView(item, bank, state.workshop)),
+      listings: state.listings.map(({ offer, otherOffers, ...listing }) => ({
+        ...listing, offer: offer && publicOffer(offer), ...(otherOffers ? { otherOffers: otherOffers.map(publicOffer) } : {}),
+      })),
+      unread: state.listings.flatMap(marketOffers).filter(({ unread, closed }) => unread && !closed).length,
       reviews: state.reviews ?? [],
       garage: { used: storageUsage(state.items, false), limit: capacityLimit(state.capacityUpgrades, 'garage') },
       vehicle: vehicleFor(state),

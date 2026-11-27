@@ -22,7 +22,7 @@ function firstTip(state: Stage7State, view: Stage7View): Tip | null {
   const firstSale = base.lastSale;
 
   if (lot === 0 && screen.phase === 'garage' && !firstSale && starterItem) {
-    if (active) return { title: 'Покупатель уже написал', body: 'Открой сообщения и посмотри, сколько он предлагает.', target: '[data-screen-focus="inbox"]' };
+    if (active) return { title: 'Покупатель уже написал', body: 'На телефоне открой «По сделкам» и посмотри, сколько он предлагает.', target: '[data-screen-focus="phone"]' };
     return { title: 'Первая вещь на продажу', body: `На полках остались бабушкины вещи. Для начала осмотри «${starterItem.name}» и выбери «К объявлению».`, target: `[data-screen-focus="scene:${CSS.escape(starterItem.id)}"]` };
   }
   if (lot === 0 && screen.phase === 'market' && !firstSale && starterItem) {
@@ -30,12 +30,13 @@ function firstTip(state: Stage7State, view: Stage7View): Tip | null {
     return { title: 'Назови цену', body: 'Начни с цены из диапазона оценки и опубликуй объявление. Слишком высокая цена может отпугнуть покупателей.', target: `[data-screen-focus="publish:${CSS.escape(starterItem.id)}"]` };
   }
   if (lot === 0 && screen.phase === 'inbox' && !firstSale && active) {
-    return { title: 'Перед первой сделкой', body: 'Открой диалог. Можно принять сумму покупателя, написать свою цену или оставить предложение без ответа.', target: '.market-thread[open][data-active-offer] button.garage__button--primary, .market-thread:not([open])[data-active-offer] summary' };
+    return { title: 'Перед первой сделкой', body: 'Открой диалог. Можно принять сумму покупателя, написать свою цену или оставить предложение без ответа.', target: '.market-chat:not([hidden]) [data-screen-focus^="chat-sale:"], .market-conversations:not(:has(.market-chat:not([hidden]))) .market-thread[data-active-offer] button' };
   }
   if (lot === 0 && firstSale && (screen.phase === 'inbox' || screen.phase === 'home' || screen.phase === 'garage') && calendar.outing) {
     return { title: `Первая выручка — ${rubles(firstSale.price)}`,
-      body: 'Деньги уже в банке. В «К торгам» проверь стартовую цену обычного гаража.',
-      target: '[data-screen-focus="auctions"]' };
+      body: screen.phase === 'home' ? 'Деньги уже в банке. В «К торгам» проверь стартовую цену обычного гаража.'
+        : 'Деньги уже в банке. Открой «К торгам» в телефоне и проверь стартовую цену обычного гаража.',
+      target: screen.phase === 'home' ? '[data-screen-focus="auctions"]' : '[data-screen-focus="phone"]' };
   }
   if (lot === 0 && screen.phase === 'hub' && calendar.outing) {
     const ordinary = screen.auctions.find(auction => auction.tier === 'ordinary');
@@ -60,7 +61,7 @@ function firstTip(state: Stage7State, view: Stage7View): Tip | null {
   }
   if (lot > 0 && view.vehicle.model === 'scooter' && base.lastDeal && (screen.phase === 'garage' || screen.phase === 'home')) {
     return { title: 'Поставь Жигули на ход', body: 'В «Мой транспорт» можно проверить стоимость ремонта и увидеть, сколько вещей поместится в седан.',
-      target: '[data-screen-focus="car"]' };
+      target: screen.phase === 'home' ? '[data-screen-focus="car"]' : '[data-screen-focus="phone"]' };
   }
   return null;
 }
@@ -68,7 +69,8 @@ function firstTip(state: Stage7State, view: Stage7View): Tip | null {
 export function mountFirstSteps(root: HTMLElement, state: Stage7State, view: Stage7View, dismiss: () => void): void {
   const tip = firstTip(state, view);
   if (!tip) return;
-  root.querySelector(tip.target)?.classList.add('first-step-target');
+  const target = root.querySelector(tip.target);
+  (target?.closest('details:not([open])')?.querySelector(':scope > summary') ?? target)?.classList.add('first-step-target');
   const panel = element('aside', 'first-step');
   panel.setAttribute('aria-label', 'Обучение');
   const avatar = element('img', '');

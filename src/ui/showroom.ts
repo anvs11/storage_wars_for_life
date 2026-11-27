@@ -79,10 +79,12 @@ export function createShowroom(root: HTMLElement, dispatch: Stage7Dispatch) {
     const live = element('div', 'showroom__model-heading');
     live.setAttribute('aria-live', 'polite');
     live.append(heading, element('p', 'hub__detail', card.classLabel));
-    const available = !card.blocked.length && (!card.fullMissing || card.tradeIn && !card.tradeMissing);
-    panel.append(live, element('p', 'showroom__state', card.active ? category === 'trailers' ? 'Подсоединён' : 'Активна'
-      : card.owned ? 'В собственности' :
-      available ? 'Доступна' : 'Заблокирована'));
+    const affordable = !card.fullMissing || Boolean(card.tradeIn && !card.tradeMissing);
+    const status = card.active ? category === 'trailers' ? 'Подсоединён' : 'Используется'
+      : card.owned ? 'В собственности'
+      : card.blocked.length ? 'Заблокировано'
+      : affordable ? 'Доступно' : 'Не хватает денег';
+    panel.append(live, element('p', 'showroom__state', status));
     const facts = element('dl', 'garage__facts');
     if (card.target.category === 'personal') {
       addFact(facts, 'Социальный рейтинг', `${catalog.status} / ${card.statusRequired}`);
@@ -163,7 +165,7 @@ export function createShowroom(root: HTMLElement, dispatch: Stage7Dispatch) {
     const comparison = element('summary', '', 'Сравнить с текущей');
     comparison.dataset.showroomFocus = 'compare';
     compare.append(comparison, comparisonFor(active, card));
-    panel.append(compare, button(card.goal ? 'Снять цель' : 'Сделать целью', 'goal', () => dispatch({
+    panel.append(compare, button(card.goal ? 'Снять цель' : '♡ Коплю на это', 'goal', () => dispatch({
       type: 'toggleVehicleGoal', target: card.target, expectedRevision: revision,
     })));
     if (card.goal) panel.append(element('p', 'hub__detail', card.owned ? 'Цель достигнута' :

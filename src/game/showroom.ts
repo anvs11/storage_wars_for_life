@@ -43,7 +43,7 @@ export function showroomCard(context: ShowroomContext, target: VehicleTarget) {
   const personal = target.category === 'personal' ? personalCars.find(car => car.id === target.model) : undefined;
   const work = target.category === 'work' ? fleet.work.find(car => car.model === target.model) : undefined;
   const offer = target.category === 'work' ? workModelOffer(target.model) : undefined;
-  const price = personal?.price ?? offer?.price ?? 0;
+  const price = personal?.price ?? offer?.price ?? (target.model === 'scooter' ? 24000 : 0);
   const active = target.category === 'work' ? context.work.model === target.model : context.personal === target.model;
   const owned = target.category === 'work' ? work !== undefined : personal !== undefined && fleet.personal.includes(personal.id);
   const currentPersonal = personalCars.find(car => car.id === context.personal);
@@ -56,7 +56,10 @@ export function showroomCard(context: ShowroomContext, target: VehicleTarget) {
   if (offer && !context.firstAuctionDone) blocked.push('Заверши первые торги на скутере');
   const vehicle = work ?? offer?.next ?? (target.category === 'work' ? { model: 'scooter' } as const : undefined);
   return {
-    target, price, owned, active, tradeIn, blocked, fullMissing: Math.max(0, price - bank),
+    target, price, owned, active, tradeIn, blocked,
+    resale: Math.round(price * 0.6),
+    saleBlock: target.category === 'work' && fleet.work.length === 1 ? 'Нужен ещё один рабочий транспорт для поездок.'
+      : target.model === 'heavy' && ownedTrailers(fleet).length ? 'Этот тягач используется с твоими прицепами.' : null, fullMissing: Math.max(0, price - bank),
     tradeMissing: Math.max(0, price - tradeIn - bank),
     name: personal?.name ?? (target.category === 'work' ? transportNames[target.model] : ''),
     classLabel: target.category === 'work' ? workClasses[target.model] : personalClasses[target.model],

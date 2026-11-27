@@ -975,3 +975,14 @@ it('сохраняет состояние и затраты на ремонт п
   const receipt = reload(play(reachMorning(packed, 6), openFlea, confirmFlea));
   expect(receipt.base.lastDeal).toMatchObject({ repairCost: 500, receipt: { purchasePrice: 1500, revenue: 3182, profit: 1682 } });
 });
+
+it('продаёт запасной скутер один раз и сохраняет рабочий автомобиль после загрузки', () => {
+  const market = { type: 'navigate', room: 'market' } as const;
+  const sale = { type: 'sellVehicle', target: { category: 'work', model: 'scooter' } } as const;
+  const start = play(funded(100000), home, auctions, enter, pass, homeFromLot,
+    { type: 'buyVehicle', target: { category: 'work', model: 'pickup' }, tradeIn: false }, market);
+  const sold = reload(play(start, sale));
+  expect(sold.base.base.game.bank).toBe(start.base.base.game.bank + 14400);
+  expect(send(sold, sale)).toBe(sold);
+  expect(sold.fleet?.work.some(entry => entry.model === 'scooter')).toBe(false);
+});

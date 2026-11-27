@@ -137,46 +137,78 @@
 }
 .vehicle-display img { display: block; width: min(100%, 590px); filter: drop-shadow(0 10px 8px #171614); }
 .shelf-scene {
-  background-size: cover;
+  position: relative;
+  isolation: isolate;
+  aspect-ratio: 3 / 2;
+  width: min(100%, max(600px, (100svh - 175px) * 1.5));
+  margin-inline: auto;
+  background-size: 100% 100%;
   background-position: center;
   display: grid;
   align-content: end;
-  gap: 1rem;
-  min-height: clamp(240px, 38vw, 440px);
-  padding: clamp(12px, 4vw, 48px);
+  overflow: clip;
   border-radius: 14px;
 }
-.garage-racks { display: flex; align-items: flex-end; gap: .75rem; }
-.garage-racks img { width: clamp(62px, 14vw, 145px); height: clamp(88px, 18vw, 195px); object-fit: contain; }
-.object-shelf { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(80px, 30%), 1fr)); gap: .3rem; }
-.shelf-item {
-  display: grid;
-  align-content: end;
-  justify-items: center;
-  min-height: 44px;
+.shelf-scene > p { margin: 8px; }
+.garage-placement__rack {
+  position: absolute; width: 13%; bottom: 24%; transform: translateX(-50%);
+}
+.garage-piece {
   padding: 0;
   border: 0;
-  border-bottom: 8px ridge #876343;
-  background: transparent;
+  background: none;
+  color: inherit;
   cursor: pointer;
 }
-.shelf-item img { width: 100%; max-height: 110px; object-fit: contain; filter: drop-shadow(2px 3px 2px #20150c); }
-.shelf-item span { width: 100%; overflow-wrap: anywhere; }
-.object-shelf {
-  background: linear-gradient(to top, #413022 0 44px, #926c45 44px 50px, transparent 50px);
-  border-bottom: 3px solid #34271d;
+.garage-placement {
+  position: absolute; z-index: var(--depth); left: var(--x); top: var(--y);
+  width: var(--w); height: var(--h); transform: translate(-50%, -100%);
+  isolation: isolate;
 }
-.shelf-item { border-bottom: 0; grid-template-rows: auto 47px; align-items: end; }
-.shelf-item span { height: 44px; align-content: center; font-size: .76rem; padding-inline: 2px; }
-.shelf-item img { max-width: 90px; }
-.object-shelf--floor, .object-shelf--jewelryBox { background: none; border: 0; }
-.object-shelf--floor .shelf-item img { max-width: 152px; }
-.object-shelf--shelf .shelf-item:nth-child(3n + 1) img { max-width: 68px; }
-.object-shelf--shelf .shelf-item:nth-child(3n + 2) img { max-width: 82px; }
+.garage-placement::before {
+  content: ''; position: absolute; z-index: -1; left: 8%; bottom: -4%;
+  width: 88%; height: max(3px, 9%); border-radius: 50%;
+  background: #21150da1; filter: blur(clamp(1px, .22vw, 4px)); pointer-events: none;
+}
+.garage-placement::after {
+  content: ''; position: absolute; left: 50%; bottom: 0;
+  width: max(44px, 100%); height: max(44px, 100%); transform: translateX(-50%);
+}
+.garage-placement__visual { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.garage-placement__visual img {
+  position: absolute; left: var(--sprite-x); top: var(--sprite-y);
+  width: var(--sprite-w); max-width: none; display: block;
+}
+.garage-placement .garage-piece__label {
+  position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%);
+  width: max-content; max-width: min(105px, 26vw);
+  padding: .2rem .35rem; border-radius: 6px; background: #172220f2;
+  color: #fff5de; font-size: clamp(.62rem, 1.3vw, .83rem);
+  opacity: 0; pointer-events: none;
+}
+.garage-placement:is(:hover, :focus-visible, .garage-placement--debug) { z-index: 120; }
+.garage-placement:is(:hover, :focus-visible, .garage-placement--debug) .garage-piece__label { opacity: 1; }
+.garage-placement--debug::after, .garage-placement:focus-visible::after { outline: 2px solid #ffd278; border-radius: 6px; }
+.garage-placement__debug {
+  position: absolute; z-index: 110; border: 1px dashed #b3efd3;
+  transform: translate(-50%, -100%); color: #f7ffe8; font-size: .61rem; pointer-events: none;
+}
+.garage-placement__debug::after {
+  content: '+'; position: absolute; bottom: -.55em; left: 50%; color: #ffc76b;
+}
+.garage-overflow { margin-block: .6rem; }
+.garage-overflow summary { min-height: 44px; align-content: center; cursor: pointer; }
+.garage-overflow__list { display: grid; gap: .4rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 138px), 1fr)); }
+.garage-overflow .garage-piece {
+  display: grid; justify-items: center; align-content: center; min-width: 44px; min-height: 44px;
+  gap: .25rem; padding: .4rem; border: 1px solid var(--line); border-radius: 9px; background: #23332f;
+}
+.garage-overflow .garage-piece img { width: 46px; aspect-ratio: 1; object-fit: contain; }
+.garage-overflow .garage-piece__label { overflow-wrap: anywhere; }
 .object-dialog { width: min(340px, 90vw); max-height: 85dvh; padding: 0; background: #1c2929; color: #fff6df; border: 1px solid #ab9572; border-radius: 14px; }
 .object-dialog::backdrop { background: #08100dc7; }
 .object-dialog img { width: 80px; justify-self: center; }
-.yard-pin:focus-visible, .shelf-item:focus-visible, .door-scene button:focus-visible { outline: 4px solid #ffd378; outline-offset: -2px; }
+.yard-pin:focus-visible, .garage-piece:focus-visible, .door-scene button:focus-visible { outline: 3px solid #ffd378; outline-offset: -2px; }
 .door-scene .garage__items, .cargo-scene .cargo-objects {
   position: absolute; inset: 0; display: block; padding: 0; margin: 0;
   pointer-events: none;

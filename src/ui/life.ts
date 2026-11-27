@@ -80,9 +80,9 @@ export function mountLife(root: HTMLElement, view: Stage7View, dispatch: Stage7D
   if (life.promise?.itemId && (screen.phase === 'market' || screen.phase === 'garage' || screen.phase === 'inbox')) {
     const { itemId, itemName, due } = life.promise;
     const warning = `«${itemName}» обещан к вечеру дня ${due}. Если отдать вещь, отношения ухудшатся.`;
-    root.querySelector('.stage5__nav')?.after(element('p', 'garage__panel life-warning', warning));
+    root.querySelector('.garage__header')?.after(element('p', 'garage__panel life-warning', warning));
     if (screen.phase === 'inbox') {
-      const threads = root.querySelectorAll<HTMLElement>(`[data-sale-item="${CSS.escape(itemId)}"]`);
+      const threads = root.querySelectorAll<HTMLElement>(`.market-chat[data-sale-item="${CSS.escape(itemId)}"]`);
       for (const thread of threads) {
         const sale = thread.querySelector('button[data-screen-focus^="chat-sale:"]');
         if (sale) sale.before(element('p', 'hub__reason', warning));
@@ -90,7 +90,7 @@ export function mountLife(root: HTMLElement, view: Stage7View, dispatch: Stage7D
     }
   }
   if (life.home.display && (screen.phase === 'garage' || screen.phase === 'market')) {
-    root.querySelector('.stage5__nav')?.after(element('p', 'garage__panel life-warning',
+    root.querySelector('.garage__header')?.after(element('p', 'garage__panel life-warning',
       'Проигрыватель стоит дома. Для продажи или упаковки верни его в гараж через экран дома.'));
   }
   if (calendar.period === 'evening' && screen.phase === 'home' && life.promise?.kind === 'listening' && life.promise.due === calendar.day) {

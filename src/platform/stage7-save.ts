@@ -180,7 +180,7 @@ function isFleet(value: unknown, active: TransportState, personal: unknown, city
   if (!Array.isArray(value.work) || value.work.length > transportModels.length || !value.work.every(isTransport)) return false;
   const models = value.work.map(entry => entry.model);
   const stored = value.work.find(entry => entry.model === active.model);
-  if (!stored || !models.includes('scooter') || new Set(models).size !== models.length) return false;
+  if (!stored || new Set(models).size !== models.length) return false;
   if (active.model === 'heavy' && (stored.model !== 'heavy' || stored.engine !== active.engine || stored.trailer !== active.trailer)) return false;
   const ids = personalCars.map(car => car.id);
   const owned = value.personal;

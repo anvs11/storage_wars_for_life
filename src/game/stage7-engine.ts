@@ -18,6 +18,7 @@ import { applyPhone, maintainPhone, phoneFor, phoneView, relationshipTier } from
 import type { PhoneCommand, PhoneState } from './phone';
 import type { LifeChoice, LifeState } from './life';
 import { personalCarOffer } from './personal-cars';
+import { marketOffers } from './market-dialogue';
 import type { PersonalCar } from './personal-cars';
 import type { Stage5State } from './stage5-engine';
 import { payForTransport } from './stage5-engine';
@@ -65,6 +66,7 @@ export type Stage7Command = Stage5Command | PhoneCommand | {
   | { readonly type: 'chooseLife'; readonly expectedRevision: number; readonly choice: LifeChoice }
   | { readonly type: 'buyPersonalCar'; readonly expectedRevision: number; readonly car: PersonalCar }
   | { readonly type: 'buyVehicle'; readonly expectedRevision: number; readonly target: ShowroomTarget; readonly tradeIn: boolean }
+  | { readonly type: 'sellVehicle'; readonly expectedRevision: number; readonly target: Exclude<ShowroomTarget, { category: 'trailers' }> }
   | { readonly type: 'activateVehicle'; readonly expectedRevision: number; readonly target: ShowroomTarget }
   | { readonly type: 'toggleVehicleGoal'; readonly expectedRevision: number; readonly target: ShowroomTarget }
   | { readonly type: 'detachTrailer'; readonly expectedRevision: number; readonly target: Extract<ShowroomTarget, { category: 'trailers' }> };
@@ -87,6 +89,8 @@ export interface Stage7View {
   readonly familyDate: FamilyDateView | null;
   readonly life: LifeView;
   readonly phone: ReturnType<typeof phoneView>;
+  readonly marketUnread: number;
+  readonly sellerReviews: NonNullable<Stage5State['reviews']>;
 }
 
 interface LifeView {
@@ -209,6 +213,23 @@ type ShowroomCommand = Extract<Stage7Command, { target: ShowroomTarget }>;
 
 function updateShowroom(state: Stage7State, command: ShowroomCommand): Stage7State {
   const { base } = state;
+  if (command.type === 'sellVehicle') {
+    if (base.room !== 'market' || base.base.game.phase !== 'hub' || base.base.relationshipOpen) return state;
+    const context = showroomContext(state);
+    const card = showroomCard(context, command.target);
+    if (!card.owned || card.saleBlock || !card.resale) return state;
+    const { fleet } = context;
+    const bank = context.bank + card.resale;
+    const target = command.target;
+    if (target.category === 'work') {
+      const work = fleet.work.filter(entry => entry.model !== target.model);
+      return { ...state, fleet: { ...fleet, work }, base: updateStage5(base, card.active ? { transport: work[0]! } : {}, bank) };
+    }
+    const personal = fleet.personal.filter(id => id !== target.model);
+    const { personalCar, ...rest } = state;
+    const active = card.active ? personal[0] : personalCar;
+    return { ...rest, ...(active ? { personalCar: active } : {}), fleet: { ...fleet, personal }, base: updateStage5(base, {}, bank) };
+  }
   if ((base.room !== 'home' && base.room !== 'car') || base.base.game.phase !== 'hub' || base.base.relationshipOpen) return state;
   const context = showroomContext(state);
   const { fleet } = context;
@@ -258,9 +279,10 @@ function updateShowroom(state: Stage7State, command: ShowroomCommand): Stage7Sta
       base: updateStage5(base, {}, context.bank - price) };
   }
   const offer = workModelOffer(target.model);
-  if (!offer) return state;
+  const next = offer?.next ?? (target.model === 'scooter' ? { model: 'scooter' } as const : null);
+  if (!next) return state;
   const kept = fleet.work.filter(entry => !command.tradeIn || entry.model !== context.work.model);
-  return { ...state, fleet: { ...fleet, work: [...kept, offer.next] }, base: payForTransport(base, offer.next, price) };
+  return { ...state, fleet: { ...fleet, work: [...kept, next] }, base: payForTransport(base, next, price) };
 }
 const displayCandidate = (base: Stage5State) => base.items.find(item => isTurntable(item) && item.condition !== 'damaged' &&
   !base.listings.some(({ itemId }) => itemId === item.id));
@@ -368,7 +390,7 @@ function reduce(state: Stage7State, command: Stage7Command): Stage7State {
   }
 
   if (calendar.period === 'night') return state;
-  if (command.type === 'buyVehicle' || command.type === 'activateVehicle' || command.type === 'toggleVehicleGoal' || command.type === 'detachTrailer') {
+  if (command.type === 'sellVehicle' || command.type === 'buyVehicle' || command.type === 'activateVehicle' || command.type === 'toggleVehicleGoal' || command.type === 'detachTrailer') {
     return updateShowroom(state, command);
   }
   if (state.fleet && (command.type === 'buyPersonalCar' || command.type === 'buyCapacity' && command.target === 'car' ||
@@ -537,9 +559,11 @@ export function getView(state: Stage7State): Stage7View {
     screen: displayed && (screen.phase === 'garage' || screen.phase === 'market')
       ? { ...screen, items: screen.items.filter(({ id }) => id !== displayed.id) } : homeScreen,
     vehicle, phone: phoneView(state), jobUnlocked: state.jobUnlocked === true,
+    marketUnread: base.listings.flatMap(marketOffers).filter(({ unread, closed }) => unread && !closed).length,
+    sellerReviews: base.reviews ?? [],
     ...(state.personalCar ? { personalCar: state.personalCar } : {}),
     personalOffer: personalCarOffer(state.personalCar, game.status, game.bank, hasCityVisit(state)),
-    ...(calendar.period !== 'night' && !state.paidVisit?.open && !flea.visit && (base.room === 'home' || base.room === 'car')
+    ...(calendar.period !== 'night' && !state.paidVisit?.open && !flea.visit && (base.room === 'home' || base.room === 'car' || base.room === 'market')
       ? { showroom: showroomView(showroomContext(state)) } : {}),
     life: {
       score: lifeScore(life), canOpen: canOpenRelationship(game.status), ...(life.last ? { last: life.last } : {}),
