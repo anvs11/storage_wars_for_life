@@ -139,6 +139,36 @@ it('переносит профиль v5 с улучшением, отклико
   expect(finished.base.base.game.assets).toEqual(['home']);
 });
 
+it('продолжает переговоры из inbox v5 и проводит одну продажу после обновления отклика', () => {
+  const storage = memory();
+  const inbox = play(storage, setup(storage, 0, 0, migrateStage5(newStage5(64))),
+    { type: 'navigate', room: 'market' }, { type: 'publish', itemId: 'home-lamp', price: 750 },
+    { type: 'navigate', room: 'inbox' });
+  const listing = inbox.base.listings[0]!;
+  const offer = listing.offer!;
+  expect(offer.ceiling).toBeDefined();
+  expect(saveV5(storage, inbox.base)).toEqual({ ok: true });
+  const loaded = loadCurrent(storage);
+  const view = getView(loaded);
+  expect(view.screen.phase).toBe('inbox');
+  expect(view.marketUnread).toBe(1);
+  if (view.screen.phase !== 'inbox') throw new Error('Ожидается inbox');
+  expect(view.screen.listings[0]?.offer).not.toHaveProperty('ceiling');
+  const replied = play(storage, loaded, { type: 'readOffer', listingId: listing.id, offerId: offer.id },
+    { type: 'messageBuyer', listingId: listing.id, offerId: offer.id, text: 'Договорились?' });
+  const current = replied.base.listings[0]!.offer!;
+  expect(current.id).not.toBe(offer.id);
+  expect(applySavedCommand(storage, replied,
+    commandFor(replied, { type: 'acceptOffer', listingId: listing.id, offerId: offer.id })).kind).toBe('ignored');
+  const sale = { type: 'acceptOffer', listingId: listing.id, offerId: current.id } as const;
+  const sold = play(storage, replied, sale);
+  expect(getView(sold).screen.bank).toBe(current.price);
+  expect(sold.base.items.some(item => item.id === listing.itemId)).toBe(false);
+  expect(sold.base.listings).toEqual([]);
+  expect(sold.base.reviews).toHaveLength(1);
+  expect(applySavedCommand(storage, sold, commandFor(sold, sale)).kind).toBe('ignored');
+});
+
 it('восстанавливает оплаченный чемодан v5 и разбирает его без расхода выезда', () => {
   const storage = memory();
   const bag = play(storage, setup(storage, 3000), hub, { type: 'callAirport' }, { type: 'buyBaggage' });

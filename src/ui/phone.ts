@@ -1,11 +1,14 @@
 import { contactStatus } from '../game/phone';
 import type { PhoneChoice } from '../game/phone';
 import type { Stage7Dispatch, Stage7View } from '../game/stage7-engine';
+import type { Room } from '../game/stage5-contract';
+import { outingAvailable } from '../game/stage7-calendar';
 import { actionButton, element, rubles } from './dom';
 import './phone.css';
+import { sellerIdentity, sellerProfile } from './seller-profile';
 
-type App = 'home' | 'chat' | 'calls' | 'meetings' | 'contacts';
-const names: Record<App, string> = { home: 'Телефон', chat: 'Переписка', calls: 'Звонки', meetings: 'Встречи', contacts: 'Контакты' };
+type App = 'home' | 'chat' | 'calls' | 'meetings' | 'contacts' | 'profile';
+const names: Record<App, string> = { home: 'Телефон', chat: 'Личные сообщения', calls: 'Звонки', meetings: 'Встречи', contacts: 'Контакты', profile: 'Профиль' };
 const playerLines: Partial<Record<PhoneChoice, string>> = {
   reply: 'Спасибо, что спросила. Расскажу, когда увидимся.', text: 'Привет! Как твой день?',
   call: 'Есть минутка поговорить?', answer: 'Привет, теперь могу говорить.',
@@ -20,6 +23,17 @@ export function createPhone(root: HTMLElement, dispatch: Stage7Dispatch) {
   let app: App = 'home';
   let error = '';
   let pendingSale = false;
+  let previousCount: number | undefined;
+  let leaving = false;
+  const localClock = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  function refreshClock() {
+    const text = localClock.format(new Date());
+    for (const node of [dialog.querySelector('time'), root.querySelector('.game-phone-trigger__clock')]) {
+      if (node) node.textContent = text;
+      if (node instanceof HTMLTimeElement) node.dateTime = text;
+    }
+  }
+  window.setInterval(refreshClock, 1000);
 
   function render(focus?: string) {
     const { phone, calendar, screen } = view;
@@ -41,9 +55,13 @@ export function createPhone(root: HTMLElement, dispatch: Stage7Dispatch) {
       error = '';
       render('title');
     };
-    const go = (room: 'auctions' | 'market' | 'inbox') => {
+    const go = (room: Room | 'auctions', selector?: string) => {
+      leaving = true;
       dialog.close();
       dispatch({ type: 'navigate', room, expectedRevision: revision });
+      const target = selector && root.querySelector<HTMLButtonElement>(selector);
+      if (target) target.click();
+      else root.querySelector<HTMLElement>('.garage__title')?.focus();
     };
     const title = element('h2', '', names[app]);
     title.id = 'game-phone-title';
@@ -52,39 +70,55 @@ export function createPhone(root: HTMLElement, dispatch: Stage7Dispatch) {
     const header = element('header', 'game-phone__header');
     if (app !== 'home') header.append(button('Назад', 'back', () => open('home')));
     header.append(title, button('Закрыть', 'close', () => dialog.close()));
-    const status = element('p', 'game-phone__status', `${calendar.weekday} · день ${calendar.day}`);
+    const status = element('p', 'game-phone__status');
+    const clock = element('time', '', calendar.time);
+    clock.dateTime = calendar.time;
+    status.append(clock, element('span', '', `${calendar.weekday} · день ${calendar.day}`));
     const panel = element('section', 'game-phone__screen');
     const stack = element('div', 'game-phone__stack');
     panel.append(stack);
     const note = (line: string) => stack.append(element('p', 'game-phone__note', line));
 
-    if (app === 'home') {
+    if (app === 'profile') {
       const summary = element('section', 'game-phone__summary');
       const meter = element('progress', '');
       meter.max = 100;
       meter.value = phone.score;
       meter.setAttribute('aria-label', 'Отношения с соседкой');
       summary.append(element('strong', '', phone.known ? `${phone.tier} · ${phone.score} / 100` : 'Знакомство с соседкой'), meter,
-        element('p', '', `Социальный рейтинг ${phone.status} · продавец ${phone.sellerRating ? phone.sellerRating + ' ★' : 'без оценок'}`));
-      stack.append(summary);
+        element('p', '', `Социальный статус · ${phone.status}`),
+        element('p', '', `Рейтинг продавца · ${phone.sellerRating ? phone.sellerRating + ' ★' : 'без оценок'}`),
+        element('p', '', `Банк · ${rubles(screen.bank)}`));
+      stack.append(sellerProfile(view.sellerReviews), summary);
+    }
+    if (app === 'home') {
+      const identity = button('', 'profile-header', () => open('profile'));
+      identity.append(sellerIdentity());
+      stack.append(identity);
       if (phone.call && !phone.call.hidden) stack.append(button('Входящий звонок от соседки', 'incoming', () => open('calls'), true));
       if (phone.meeting) stack.append(button('Запланированная встреча', 'agenda', () => open('meetings')));
       const apps = element('nav', 'game-phone__apps');
       apps.setAttribute('aria-label', 'Приложения');
-      function tile(label: string, key: string, icon: string, run: () => void) {
+      function tile(label: string, key: string, icon: string, run: () => void, disabled = false) {
         const control = button('', key, run);
         const symbol = element('span', 'game-phone__icon', icon);
         symbol.setAttribute('aria-hidden', 'true');
         control.append(symbol, element('span', '', label));
+        control.disabled = disabled;
         apps.append(control);
       }
-      tile(phone.unread ? `Соседка (${phone.unread})` : 'Соседка', 'chat', '✉', () => open('chat'));
+      tile(phone.unread ? `Личные сообщения (${phone.unread})` : 'Личные сообщения', 'chat', '✉', () => open('chat'));
       tile('Звонки', 'calls', '☎', () => open('calls'));
       tile('Встречи', 'meetings', '◷', () => open('meetings'));
       tile('Контакты', 'contacts', '◎', () => open('contacts'));
-      tile('Аукционы', 'auctions', '▥', () => go('auctions'));
-      tile('Объявления', 'market', '▤', () => go('market'));
-      tile('Покупатели', 'inbox', '▣', () => go('inbox'));
+      const canAuction = outingAvailable(calendar.period) || calendar.bonusAuction === 'available';
+      tile(canAuction ? 'К торгам' : 'Торги завтра', 'auctions', '▥', () => go('auctions'), !canAuction);
+      tile('Доска объявлений', 'market', '▤', () => go('market'));
+      tile(view.marketUnread ? `По сделкам (${view.marketUnread})` : 'По сделкам', 'inbox', '▣', () => go('inbox'));
+      tile('Мой транспорт', 'car', '▱', () => go('car'));
+      tile('Автосалон', 'showroom', '↔', () => go('car', '.owned-transport [data-open-showroom]'));
+      tile('Шоурум домов', 'house', '⌂', () => go('home', '[data-open-house-showroom]'));
+      tile('Профиль', 'profile', '◎', () => open('profile'));
       stack.append(apps);
     }
     if (app === 'chat') {
@@ -187,7 +221,8 @@ export function createPhone(root: HTMLElement, dispatch: Stage7Dispatch) {
       feedback.setAttribute('role', 'alert');
       stack.append(feedback);
     }
-    dialog.replaceChildren(header, status, panel);
+    dialog.replaceChildren(status, header, panel);
+    refreshClock();
     if (app === 'chat') {
       const chat = panel.querySelector('.game-phone__chat');
       if (chat) chat.scrollTop = chat.scrollHeight;
@@ -198,28 +233,40 @@ export function createPhone(root: HTMLElement, dispatch: Stage7Dispatch) {
   dialog.addEventListener('close', () => {
     pendingSale = false;
     error = '';
-    root.querySelector<HTMLElement>('.game-phone-trigger')?.focus({ preventScroll: true });
+    if (!leaving) root.querySelector<HTMLElement>('.game-phone-trigger')?.focus({ preventScroll: true });
+    leaving = false;
   });
   return {
     update(next: Stage7View) {
       view = next;
+      const count = view.marketUnread + view.phone.unread + Number(Boolean(view.phone.call && !view.phone.call.hidden));
+      const newNotification = previousCount !== undefined && count > previousCount;
+      previousCount = count;
       if (!view.phone.available) {
         if (dialog.open) dialog.close();
         return;
       }
-      const trigger = actionButton('Телефон', 'game-phone-trigger', () => {
+      const onYard = view.screen.phase === 'home';
+      const trigger = actionButton(onYard ? '' : 'Телефон', 'game-phone-trigger', () => {
         app = 'home';
         render();
         dialog.showModal();
         dialog.querySelector<HTMLElement>('[data-phone-key="close"]')?.focus();
       });
-      const count = view.phone.unread + (view.phone.call && !view.phone.call.hidden ? 1 : 0);
+      trigger.dataset.screenFocus = 'phone';
       trigger.setAttribute('aria-haspopup', 'dialog');
-      if (count) {
-        trigger.append(element('span', 'game-phone-trigger__count', String(count)));
-        trigger.setAttribute('aria-label', `Телефон · новых уведомлений ${count}`);
+      trigger.setAttribute('aria-label', count ? `Телефон · новых уведомлений ${count}` : 'Телефон');
+      if (onYard) {
+        trigger.classList.add('game-phone-trigger--yard');
+        const clock = element('span', 'game-phone-trigger__clock', view.calendar.time);
+        clock.setAttribute('aria-hidden', 'true');
+        trigger.append(clock);
+        if (count) trigger.append(element('span', 'phone-notice', '✉ Сообщение'));
       }
-      (root.querySelector('.yard-footer') ?? root.firstElementChild)?.append(trigger);
+      if (count) trigger.append(element('span', 'game-phone-trigger__count', String(count)));
+      if (newNotification) trigger.classList.add('game-phone-trigger--new');
+      (root.querySelector(onYard ? '.yard-footer' : '.garage__header') ?? root.firstElementChild)?.append(trigger);
+      refreshClock();
       if (dialog.open) {
         const active = (document.activeElement as HTMLElement)?.dataset.phoneKey;
         error = '';

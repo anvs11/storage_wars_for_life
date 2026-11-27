@@ -1,11 +1,12 @@
 import { familyOccasion } from '../game/stage7-family';
 import type { Stage7Dispatch, Stage7View } from '../game/stage7-engine';
 import { outingAvailable, periodNames, waitLabels } from '../game/stage7-calendar';
+import { mountOwnedTransport } from './owned-transport';
 import { actionButton, bankFor, element, replaceScreen, rubles } from './dom';
 import { mountStage5 } from './mount';
 import { relationshipGoalFor } from './relationship';
 import { mountPaidVisit } from './stage7-trip';
-import { vehicleName, vehiclePicture } from './vehicle';
+import { personalCarPicture, vehicleName, vehiclePicture } from './vehicle';
 import { mountLife } from './life';
 import './stage7.css';
 
@@ -159,7 +160,42 @@ export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage
 
   const boughtNow = screen.phase === 'cargo' && !screen.baggage
     && root.firstElementChild?.getAttribute('data-auction-lot') === String(screen.lotNumber);
+  const previousTransport = root.querySelector<HTMLElement>('.owned-transport')?.dataset;
+  const transportFocus = (document.activeElement as HTMLElement | null)?.dataset.transportFocus;
   mountStage5(root, screen, dispatch, calendar, { data: flea, dispatch });
+  if (screen.phase === 'market' && view.showroom) {
+    const vehicles = element('section', 'stage5__market market-vehicles');
+    for (const car of [...view.showroom.work, ...view.showroom.personal].filter(car => car.owned)) {
+      const card = element('article', 'garage__panel market-card');
+      card.dataset.category = 'vehicle';
+      card.dataset.price = String(car.resale);
+      const overview = element('div', 'market-card__overview');
+      const target = car.target;
+      overview.append(target.category === 'work' ? vehiclePicture(target.model) : personalCarPicture(target.model));
+      const copy = element('div', 'market-card__copy');
+      copy.append(element('h2', 'garage__heading', car.name), element('p', 'market-description', car.classLabel),
+        element('strong', 'market-price', rubles(car.resale)), element('p', '', 'Предложение выкупа'));
+      overview.append(copy);
+      card.append(overview);
+      if (car.saleBlock) card.append(element('small', '', car.saleBlock));
+      else {
+        const confirm = element('details', 'market-card__details');
+        confirm.append(element('summary', '', 'Продать транспорт'), actionButton('Подтвердить за ' + rubles(car.resale), primary,
+          () => dispatch({ type: 'sellVehicle', target, expectedRevision })));
+        card.append(confirm);
+      }
+      vehicles.append(card);
+    }
+    root.querySelector('.market-content > .stage5__market')?.before(vehicles);
+  }
+  if (screen.phase === 'car' && view.showroom) {
+    mountOwnedTransport(root, view, dispatch, previousTransport, transportFocus);
+  }
+  if (screen.phase === 'home') {
+    root.querySelector('.yard-hero > .garage__header')?.prepend(
+      element('p', 'yard-clock', `День ${calendar.day} · ${periodNames[calendar.period]}`),
+    );
+  }
   if (view.auctionTransport) {
     const { garageFree, tutorialDelivery, longLoad } = view.auctionTransport;
     const transport = element('div', 'auction-transport');
@@ -214,7 +250,7 @@ export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage
   }
   const scene = root.querySelector(':scope > .garage');
   if (['garage', 'home', 'inspection', 'bidding', 'relationship'].includes(screen.phase)) scene?.append(panel);
-  else scene?.querySelector('.garage__header')?.after(panel);
+  else if (!['car', 'market', 'inbox'].includes(screen.phase)) scene?.querySelector('.garage__header')?.after(panel);
   if (view.canParkLot && screen.phase === 'cargo') {
     const action = actionButton('Отложить разбор и вернуться к торгам', 'garage__button',
       () => dispatch({ type: 'parkLot', expectedRevision }));
@@ -245,7 +281,7 @@ export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage
       auctionLink.disabled = true;
       auctionLink.textContent = 'Торги завтра';
     }
-    if (atHome) scene?.querySelector('.yard-footer')?.prepend(notice);
+    if (atHome) scene?.querySelector('.yard-hero')?.after(notice);
     else scene?.querySelector('.garage__header')?.after(notice);
     if (returningToRest) rest.focus({ preventScroll: true });
   }

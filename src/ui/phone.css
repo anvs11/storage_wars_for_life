@@ -1,8 +1,5 @@
 .game-phone-trigger {
-  position: fixed;
-  z-index: 5;
-  left: max(12px, env(safe-area-inset-left));
-  bottom: max(12px, env(safe-area-inset-bottom));
+  position: relative;
   min-width: 44px;
   min-height: 44px;
   padding: 6px 12px;
@@ -13,9 +10,50 @@
   box-shadow: 0 5px 16px #0007;
   font: 650 .9rem/1.2 system-ui, sans-serif;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
-.yard-footer { position: relative; }
-.yard-footer .game-phone-trigger { position: absolute; bottom: calc(100% + 8px); }
+.yard-footer .game-phone-trigger--yard {
+  position: absolute;
+  left: max(clamp(18px, 4vw, 54px), env(safe-area-inset-left));
+  bottom: max(20px, env(safe-area-inset-bottom));
+  width: clamp(48px, 6vw, 76px);
+  aspect-ratio: 0.56;
+  padding: 10px 2px;
+  border: 3px solid #24292a;
+  border-radius: 13px;
+  background: linear-gradient(#16233284, #1d29410d 65%, #0810158c),
+    var(--yard-backdrop) 49% / auto 100%;
+  box-shadow: 0 3px 0 #6c777b, 0 8px 18px #000a;
+  transform: rotate(-7deg);
+  align-content: start;
+}
+.game-phone-trigger--yard::before {
+  content: '';
+  display: block;
+  width: 38%;
+  height: 4px;
+  margin: -5px auto 7px;
+  border-radius: 8px;
+  background: #101a1e;
+}
+.game-phone-trigger--yard::after {
+  content: '';
+  position: absolute;
+  inset: auto 28% 5px;
+  height: 2px;
+  border-radius: 3px;
+  background: #fffc;
+}
+.game-phone-trigger__clock { display: block; font-size: clamp(.71rem, 1.4vw, 1.05rem); text-shadow: 0 1px 3px #000; }
+.game-phone-trigger:active { scale: .96; }
+.game-phone-trigger--yard:hover { animation: phone-wobble 320ms ease-in-out 1; }
+.game-phone-trigger--new { animation: phone-notification 360ms ease-out 1; }
+.game-phone-trigger--yard.game-phone-trigger--new { animation: phone-wobble 320ms ease-in-out 1; }
+@keyframes phone-wobble { 0%, 100% { rotate: 0deg; } 30% { rotate: 2deg; } 70% { rotate: -2deg; } }
+@keyframes phone-notification { 0%, 100% { translate: 0; } 30% { translate: 2px; } 70% { translate: -2px; } }
+@media (prefers-reduced-motion: reduce) {
+  .game-phone-trigger--yard:hover, .game-phone-trigger--new, .game-phone-trigger--yard.game-phone-trigger--new { animation: none; }
+}
 .game-phone-trigger__count {
   margin-inline-start: .45rem;
   padding: 2px 6px;
@@ -23,27 +61,27 @@
   color: #201a0d;
   background: #ffc76b;
 }
+.game-phone-trigger--yard .game-phone-trigger__count { position: absolute; top: -5px; right: -10px; color: #fff; background: #b6293d; }
 .game-phone-trigger:focus-visible, .game-phone button:focus-visible {
   outline: 2px solid #f5cd83;
   outline-offset: 2px;
 }
-.garage:has(> .game-phone-trigger):not(.stage5--home) { padding-bottom: 68px; }
 .game-phone {
   --amber: #ffc76b;
-  --muted: #b5c8bb;
-  --line: #40544d;
+  --muted: #4e6258;
+  --line: #b4c2b8;
   position: fixed;
-  inset: auto auto 12px 12px;
+  inset: auto auto max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
   box-sizing: border-box;
   margin: 0;
-  width: min(390px, calc(100vw - 24px));
+  width: min(370px, calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)));
   max-height: calc(100dvh - 24px);
   padding: 14px;
   overflow: auto;
-  border: 2px solid #64796f;
+  border: 5px solid #273933;
   border-radius: 25px;
-  background: #13201f;
-  color: #fff7e6;
+  background: #f7f5ef;
+  color: #202522;
   box-shadow: 0 12px 45px #0007;
   font: 1rem/1.4 system-ui, sans-serif;
 }
@@ -52,27 +90,47 @@
 .game-phone__header h2 { margin: 0; margin-right: auto; font-size: 1.16rem; }
 .game-phone__header button { padding-inline: .55rem; }
 .game-phone__status, .game-phone__note { color: var(--muted); font-size: .88rem; }
+.game-phone__status { display: flex; gap: .7rem; align-items: center; margin-block: .55rem .9rem; }
+.game-phone__status time { font-size: 1.15rem; font-weight: 750; color: #22332b; font-variant-numeric: tabular-nums; }
 .game-phone__stack, .game-phone__chat { display: grid; gap: .55rem; }
 .game-phone__chat { max-height: min(32dvh, 235px); overflow: auto; }
 .game-phone__stack p { margin: 0; }
-.game-phone__summary { padding: .75rem; background: #243631; border-radius: 13px; }
+.game-phone__summary { padding: .75rem; background: #fff; border-radius: 13px; }
 .game-phone__summary p { color: var(--muted); font-size: .78rem; }
 .game-phone__summary progress { width: 100%; accent-color: #e9aeaf; }
-.game-phone__apps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; }
-.game-phone__apps button { display: grid; place-items: center; padding: 8px 3px; gap: 4px; font-size: .79rem; }
-.game-phone__icon { font-size: 1.35rem; color: #e5bc79; }
+.game-phone__apps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
+.game-phone__apps button { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: .4rem; padding: .4rem; text-align: left; font-size: .83rem; }
+.game-phone__icon { display: grid; place-items: center; width: 1.55rem; height: 1.55rem; border-radius: 7px; background: #fae4bc; color: #593819; }
 .game-phone__bubble {
   justify-self: start; padding: .5rem .65rem; max-width: 90%; overflow-wrap: anywhere;
-  background: #2b3d39; border-radius: 12px 12px 12px 3px; font-size: .92rem;
+  background: #fff; border-radius: 12px 12px 12px 3px; font-size: .92rem;
 }
-.game-phone__bubble--me { justify-self: end; background: #38564a; border-radius: 12px 12px 3px 12px; }
+.game-phone__bubble--me { justify-self: end; background: #dce9dc; border-radius: 12px 12px 3px 12px; }
 .game-phone__call {
   display: grid; justify-items: center; gap: .35rem; padding: .8rem;
-  text-align: center; background: #243631; border-radius: 13px;
+  text-align: center; background: #fff; border-radius: 13px;
 }
 .game-phone__caller {
   display: grid; place-items: center; width: 46px; height: 46px; border-radius: 50%;
   color: #ffd69b; background: #44534d; font-size: 1.35rem;
 }
-.game-phone .garage__button { min-height: 44px; }
+.game-phone .garage__button { min-height: 44px; background: #fff; color: #202522; }
+.game-phone .garage__button--primary { background: var(--amber); }
+.game-phone .hub__reason { color: #9c2f22; }
 .game-phone .garage__button:disabled { opacity: .6; }
+.seller-identity { display: flex; align-items: center; gap: .8rem; text-align: left; }
+.seller-identity img { width: 54px; height: 54px; border-radius: 50%; object-fit: cover; border: 2px solid #c59351; }
+.seller-profile { display: grid; gap: .55rem; padding: .85rem; border-radius: 15px; background: #fff; color: #27332c; }
+.seller-profile :is(p,h3) { margin: 0; }
+.seller-stats { color: #32624d; }
+.seller-review { display: grid; gap: .2rem; border-top: 1px solid #d4ded6; padding-top: .5rem; }
+.game-phone { border-radius: 32px; border: 6px solid #252c2a; box-shadow: inset 0 0 0 2px #ddd8cd, 0 14px 50px #0008; background: linear-gradient(140deg,#fbf9f4,#f2e5d7); }
+.game-phone__header { margin-block: .65rem; }
+.game-phone__status { position: relative; justify-content: space-between; font-size: .72rem; }
+.game-phone__status::after { content: ''; position: absolute; left: 47%; top: 1px; width: 30px; height: 8px; border-radius: 6px; background: #202626; }
+.game-phone__icon { border-radius: 8px; background: #f7dfb6; }
+.game-phone__apps button:nth-child(3n+1) .game-phone__icon { background: #e2d9f4; color: #624594; }
+.game-phone__apps button:nth-child(3n+2) .game-phone__icon { background: #d5e9de; color: #27634d; }
+.game-phone-trigger--yard .game-phone-trigger__clock { font-variant-numeric: tabular-nums; font-size: clamp(.64rem,1vw,.89rem); }
+.yard-footer .game-phone-trigger--yard { width: clamp(65px,11.5cqw,145px); left: 4%; bottom: 4%; background: linear-gradient(165deg,#4b4669 0%,#cf9586 44%,#4d434c26 63%), var(--yard-backdrop) center bottom/auto 70%; }
+.phone-notice { display: block; margin-top: 6px; border-radius: 4px; padding: 3px 1px; font-size: .53rem; background: #fff1dfed; color: #433824; }

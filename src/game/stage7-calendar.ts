@@ -5,6 +5,9 @@ export type Period = typeof periods[number];
 export const periodNames: Record<Period, string> = {
   morning: 'утро', afternoon: 'день', lateAfternoon: 'после полудня', evening: 'вечер', night: 'ночь',
 };
+const periodTimes: Record<Period, string> = {
+  morning: '08:00', afternoon: '12:00', lateAfternoon: '16:00', evening: '20:00', night: '23:00',
+};
 export const waitLabels: Record<OutingPeriod, string> = {
   morning: 'до дня', afternoon: 'до второй половины дня', lateAfternoon: 'до вечера',
 };
@@ -22,6 +25,7 @@ type Weekday = typeof weekdays[number];
 
 export interface CalendarView extends CalendarState {
   readonly weekday: Weekday;
+  readonly time: string;
   readonly outing: string | null;
   readonly remainingOutings: number;
   readonly bonusAuction?: 'available' | 'used';
@@ -54,7 +58,7 @@ export function getCalendarView(calendar: CalendarState): CalendarView {
     nextMarket = { weekday: 'Суббота', daysAway: 6 };
   }
   return {
-    ...calendar, weekday: weekdays[weekdayIndex]!, nextMarket,
+    ...calendar, weekday: weekdays[weekdayIndex]!, time: periodTimes[period], nextMarket,
     outing: outingAvailable(period) ? outingNames[period] : null,
     remainingOutings: Math.max(0, outingPeriods.length - periods.indexOf(period)),
   };
