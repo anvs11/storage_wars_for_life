@@ -1,7 +1,7 @@
 import { jobStations, prologueFrames, roomNames } from '../game/stage5-contract';
 import type { Stage5Command } from '../game/stage5-contract';
 import { applyCommand, capacityLimit, economyFor, jewelryLimit, migrateStage4, openCargoItems, stage6Defaults, storageUsage, transportBlock, transportLoad, vehicleFor } from '../game/stage5-engine';
-import { transportModels } from '../game/transport';
+import { trailerIds, transportModels } from '../game/transport';
 import type { TransportState } from '../game/transport';
 import type { OwnedItem, Stage5State } from '../game/stage5-engine';
 import { areIds, exactKeys, isMoney, isRecord, loadSnapshot, writeSnapshot } from './save';
@@ -48,7 +48,7 @@ export function isTransport(value: unknown): value is TransportState {
   if (!isRecord(value) || !transportModels.some(model => model === value.model)) return false;
   return value.model === 'heavy'
     ? exactKeys(value, ['model', 'engine', 'trailer']) &&
-      [0, 1, 2].some(level => level === value.engine) && [0, 1, 2].some(level => level === value.trailer)
+      [0, 1, 2].some(level => level === value.engine) && (value.trailer === null || trailerIds.some(id => id === value.trailer))
     : exactKeys(value, ['model']);
 }
 

@@ -1,7 +1,7 @@
 import type { ItemId, PassedReceipt, SoldReceipt } from './contract';
 import type { Stage3Scene } from './stage3-contract';
 import type { Stage4Command, Stage4View } from './stage4-contract';
-import type { TransportModel, TransportUpgrade } from './transport';
+import type { Trailer, TransportModel, TransportUpgrade } from './transport';
 import type { PersonalCar } from './personal-cars';
 
 export const prologueFrames = ['eviction', 'rain', 'call', 'keys'] as const;
@@ -18,7 +18,7 @@ export type Stage5Command = Stage4Command | { readonly expectedRevision: number 
   | { readonly type: 'readOffer' | 'acceptOffer'; readonly listingId: string; readonly offerId: string }
   | { readonly type: 'sortItem'; readonly station: JobStation }
   | { readonly type: 'buyCapacity'; readonly target: 'garage' | 'car' | 'shelves' }
-  | { readonly type: 'buyHouse'; readonly level: 4 | 5 }
+  | { readonly type: 'buyHouse'; readonly level: 2 | 3 | 4 | 5 }
   | { readonly type: 'upgradeTransport'; readonly upgrade: TransportUpgrade }
   | { readonly type: 'repairItem'; readonly itemId: ItemId }
   | { readonly type: 'counterOffer'; readonly listingId: string; readonly offerId: string; readonly price: number }
@@ -99,7 +99,7 @@ type RoomView = Shared & {
 export interface VehicleView {
   readonly model: TransportModel;
   readonly capacity: number;
-  readonly trailer?: 0 | 1 | 2;
+  readonly trailer?: Trailer;
 }
 
 export interface TransportOfferView {

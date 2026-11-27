@@ -9,15 +9,17 @@ import type { FamilyDate } from './stage7-family';
 import { advanceRelationship, canOpenRelationship, getRelationshipGoal } from './relationships';
 import type { RelationshipGoal, RelationshipStep } from './stage4-contract';
 import type { GarageItemView, Stage5Command, Stage5View, VehicleView } from './stage5-contract';
-import { applyCommand as applyStage5, capacityLimit, economyFor, finishCargo, getView as getStage5View, hasTutorialDelivery, housePrices, listingsWithReplies, newGame as newStage5, settleSales, storageUsage, transportFor, updateStage5, vehicleFor, waitForOffers } from './stage5-engine';
+import { applyCommand as applyStage5, capacityLimit, economyFor, finishCargo, getView as getStage5View, hasTutorialDelivery, listingsWithReplies, newGame as newStage5, settleSales, storageUsage, transportFor, updateStage5, vehicleFor, waitForOffers } from './stage5-engine';
 import { hasBonusAuction, requiresLongBed } from './transport';
-import { breakPromise, changeLife, initialLife, isTurntable, lifeScene, lifeScore, referralFor, weekOf, workshopPrice } from './life';
+import { breakPromise, changeLife, initialLife, isTurntable, lifeScene, lifeScore, referralFor, weekOf } from './life';
+import { houseLevel } from './houses';
+import type { HouseLevel } from './houses';
 import type { LifeChoice, LifeState } from './life';
 import { personalCarOffer } from './personal-cars';
 import type { PersonalCar } from './personal-cars';
 import type { Stage5State } from './stage5-engine';
 import { payForTransport } from './stage5-engine';
-import { existingFleet, showroomCard, showroomView } from './showroom';
+import { existingFleet, ownedTrailers, showroomCard, showroomView, trailerCard } from './showroom';
 import type { Fleet, ShowroomContext, ShowroomTarget } from './showroom';
 import { workModelOffer } from './transport';
 import type { Stage4State } from './stage4-engine';
@@ -50,7 +52,7 @@ type FleaNavigation = 'openFleaVisit' | 'cancelFleaVisit' | 'confirmFleaVisit' |
 type FleaPacking = 'packForFlea' | 'unpackFlea' | 'toggleFleaBaggage';
 type PhotoAction = 'openVisitPhoto' | 'closeVisitPhoto';
 type SimpleAction = CalendarAction | FleaNavigation | PhotoAction | 'giveBirthdayFlowers' | 'authorizeJob' | 'parkLot'
-  | 'buyWorkshop' | 'displayTurntable' | 'retrieveTurntable' | 'openReferral';
+  | 'displayTurntable' | 'retrieveTurntable' | 'openReferral';
 
 export type Stage7Command = Stage5Command | {
   [Action in SimpleAction]: { readonly type: Action; readonly expectedRevision: number };
@@ -61,7 +63,8 @@ export type Stage7Command = Stage5Command | {
   | { readonly type: 'buyPersonalCar'; readonly expectedRevision: number; readonly car: PersonalCar }
   | { readonly type: 'buyVehicle'; readonly expectedRevision: number; readonly target: ShowroomTarget; readonly tradeIn: boolean }
   | { readonly type: 'activateVehicle'; readonly expectedRevision: number; readonly target: ShowroomTarget }
-  | { readonly type: 'toggleVehicleGoal'; readonly expectedRevision: number; readonly target: ShowroomTarget };
+  | { readonly type: 'toggleVehicleGoal'; readonly expectedRevision: number; readonly target: ShowroomTarget }
+  | { readonly type: 'detachTrailer'; readonly expectedRevision: number; readonly target: Extract<ShowroomTarget, { category: 'trailers' }> };
 
 export type Stage7Dispatch = (command: Stage7Command) => void;
 
@@ -89,7 +92,7 @@ interface LifeView {
   readonly scene: (Omit<NonNullable<ReturnType<typeof lifeScene>>, 'item'> & { itemName?: string }) | null;
   readonly promise?: { kind: NonNullable<LifeState['promise']>['kind']; due: number; itemId?: string; itemName?: string };
   readonly referral: { itemName: string; price: number; day: number } | null;
-  readonly home: { level: 1 | 2 | 3 | 4 | 5; workshopPrice: number; nextHouse?: { level: 4 | 5; price: number };
+  readonly home: { level: HouseLevel;
     display?: string; displayCandidate?: string };
 }
 
@@ -206,6 +209,26 @@ function updateShowroom(state: Stage7State, command: ShowroomCommand): Stage7Sta
   const context = showroomContext(state);
   const { fleet } = context;
   const { target } = command;
+  if (target.category === 'trailers') {
+    const card = trailerCard(context, target.model);
+    if (!card) return state;
+    if (command.type === 'toggleVehicleGoal') {
+      const { trailerGoal, ...rest } = fleet;
+      return { ...state, fleet: trailerGoal === target.model ? rest : { ...rest, trailerGoal: target.model }, base: updateStage5(base, {}) };
+    }
+    const truck = fleet.work.find(entry => entry.model === 'heavy');
+    if (!truck) return state;
+    const buying = command.type === 'buyVehicle';
+    const detaching = command.type === 'detachTrailer';
+    if (buying ? command.tradeIn || card.owned || card.fullMissing : detaching ? !card.active : !card.owned || card.active) return state;
+
+    const heavy = { ...truck, trailer: detaching ? null : target.model };
+    const trailers = ownedTrailers(fleet);
+    return { ...state, fleet: { ...fleet, work: fleet.work.map(entry => entry.model === 'heavy' ? heavy : entry),
+      trailers: buying ? [...trailers, target.model] : trailers },
+      base: updateStage5(base, context.work.model === 'heavy' ? { transport: heavy } : {},
+        context.bank - (buying ? card.price : 0)) };
+  }
   const card = showroomCard(context, target);
   if (!card.name) return state;
   if (command.type === 'toggleVehicleGoal') {
@@ -339,11 +362,12 @@ function reduce(state: Stage7State, command: Stage7Command): Stage7State {
   }
 
   if (calendar.period === 'night') return state;
-  if (command.type === 'buyVehicle' || command.type === 'activateVehicle' || command.type === 'toggleVehicleGoal') {
+  if (command.type === 'buyVehicle' || command.type === 'activateVehicle' || command.type === 'toggleVehicleGoal' || command.type === 'detachTrailer') {
     return updateShowroom(state, command);
   }
   if (state.fleet && (command.type === 'buyPersonalCar' || command.type === 'buyCapacity' && command.target === 'car' ||
-      command.type === 'upgradeTransport' && transportFor(base).model !== 'heavy')) return state;
+      command.type === 'upgradeTransport' && (transportFor(base).model !== 'heavy' ||
+        command.upgrade === 'highSideTrailer' || command.upgrade === 'containerTrailer'))) return state;
   if (command.type === 'buyPersonalCar') {
     if (base.room !== 'home') return state;
     const game = profile.game;
@@ -352,11 +376,7 @@ function reduce(state: Stage7State, command: Stage7Command): Stage7State {
     return { ...state, personalCar: offer.id, cityVisit: true, base: updateStage5(base, {}, game.bank - offer.total) };
   }
   if (command.type === 'chooseLife') return chooseLife(state, command.choice);
-  if (command.type === 'buyWorkshop') {
-    const game = profile.game;
-    if (base.room !== 'home' || base.workshop || !game.assets.includes('home') || game.bank < workshopPrice) return state;
-    return { ...state, base: updateStage5(base, { workshop: true }, game.bank - workshopPrice) };
-  }
+  if (command.type === 'spend' && command.offerId === 'home') return state;
   if (command.type === 'displayTurntable' || command.type === 'retrieveTurntable') {
     if (base.room !== 'home' || !profile.game.assets.includes('home')) return state;
     const { displayId, ...rest } = lifeFor(state);
@@ -501,8 +521,8 @@ export function getView(state: Stage7State): Stage7View {
   const displayed = base.items.find(({ id }) => id === life.displayId);
   const candidate = homeImproved && !displayed ? displayCandidate(base) : null;
   const promised = base.items.find(({ id }) => id === life.promise?.itemId);
-  const screen = getStage5View(base);
-  const nextHouse = base.workshop && base.house !== 5 ? base.house === 4 ? 5 : 4 : null;
+  const stage5 = getStage5View(base);
+  const screen = stage5.phase === 'hub' ? { ...stage5, offers: stage5.offers.filter(({ id }) => id !== 'home') } : stage5;
   const homeScreen = screen.phase === 'home' && state.personalCar ? { ...screen, personalCar: state.personalCar } : screen;
   return {
     screen: displayed && (screen.phase === 'garage' || screen.phase === 'market')
@@ -519,8 +539,7 @@ export function getView(state: Stage7State): Stage7View {
       ...(life.promise ? { promise: { kind: life.promise.kind, due: life.promise.due,
         ...(promised ? { itemId: promised.id, itemName: promised.name } : {}) } } : {}),
       referral: referral ? { itemName: referral.item.name, price: referral.price, day: referral.day } : null,
-      home: { level: base.house ?? (base.workshop ? 3 : homeImproved ? 2 : 1), workshopPrice,
-        ...(nextHouse ? { nextHouse: { level: nextHouse, price: housePrices[nextHouse] } } : {}),
+      home: { level: houseLevel(base.house, base.workshop, homeImproved),
         ...(displayed ? { display: displayed.name } : {}), ...(candidate ? { displayCandidate: candidate.name } : {}) },
     },
     ...(game.phase === 'inspection' || game.phase === 'bidding' ? { auctionTransport: {

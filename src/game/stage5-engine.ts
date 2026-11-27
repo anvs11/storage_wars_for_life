@@ -11,6 +11,8 @@ import { marketOffers, newMarketOffer, reviewFor, updateMarketOffer } from './ma
 import { prologueFrames } from './stage5-contract';
 import { describeVehicle, hasBonusAuction, requiresLongBed, transportOffers } from './transport';
 import type { TransportState } from './transport';
+import { houseLevel, houses } from './houses';
+import { offers } from './progression';
 
 export interface OwnedItem extends GarageItemView {
   readonly value: number;
@@ -131,7 +133,6 @@ const upgrades = {
   car: { price: 18000, current: carLimit, next: 8 },
   shelves: { price: 26000, current: 16, next: 24 },
 } as const;
-export const housePrices = { 4: 380000, 5: 2800000 } as const;
 export const capacityLimit = (owned: readonly string[], target: 'garage' | 'car'): number =>
   target === 'garage' && owned.includes('shelves') ? upgrades.shelves.next
     : owned.includes(target) ? upgrades[target].next : upgrades[target].current;
@@ -398,10 +399,19 @@ function handleRoom(state: Stage5State, command: Stage5Command, boxed: readonly 
       return updateStage5(state, { capacityUpgrades: [...state.capacityUpgrades, command.target] }, state.base.game.bank - upgrade.price);
     }
     case 'buyHouse': {
-      const next = state.house === undefined ? 4 : state.house === 4 ? 5 : null;
-      if (state.room !== 'home' || !state.workshop || command.level !== next) return state;
-      const price = housePrices[command.level];
-      return state.base.game.bank >= price ? updateStage5(state, { house: command.level }, state.base.game.bank - price) : state;
+      const { game } = state.base;
+      const hasHome = game.assets.includes('home');
+      if (state.room !== 'home' || game.phase !== 'hub' || state.base.relationshipOpen ||
+          !Object.hasOwn(houses, command.level) || command.level <= houseLevel(state.house, state.workshop, hasHome)) return state;
+      const { price } = houses[command.level];
+      if (game.bank < price) return state;
+      return {
+        ...state,
+        ...(command.level >= 3 ? { workshop: true } : {}),
+        ...(command.level === 4 || command.level === 5 ? { house: command.level } : {}),
+        base: { ...state.base, game: { ...game, revision: game.revision + 1, bank: game.bank - price,
+          status: game.status + (hasHome ? 0 : offers.home.statusGain), assets: hasHome ? game.assets : [...game.assets, 'home'] } },
+      };
     }
     case 'upgradeTransport': {
       if (state.room !== 'car') return state;

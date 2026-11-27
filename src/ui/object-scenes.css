@@ -1,6 +1,31 @@
 .yard-scene, .door-picture { position: relative; }
-.yard-scene { max-width: 830px; margin-inline: auto; }
-.yard-pin, .door-label, .shelf-item span {
+.yard-scene {
+  width: min(100%, 150svh); margin-inline: auto; isolation: isolate;
+  --personal-parking: 26%; --personal-ground: 13%; --personal-width: 39%;
+  --work-parking: 75%; --parking-ground: 19%;
+  --yard-light: sepia(.18) saturate(.91) brightness(.92) contrast(1.06);
+}
+.yard-scene { overflow: clip; }
+.yard-scene > .stage5__art { border-radius: 0; }
+.yard-scene::before, .yard-scene::after {
+  content: ''; position: absolute; inset: 29% auto 0 0; width: 52%; pointer-events: none;
+  background: var(--left-bay, none) center / 100% 100% no-repeat;
+  mask-image: linear-gradient(to right, black 91%, transparent 100%), linear-gradient(transparent, black 14%);
+  mask-composite: intersect;
+}
+.yard-scene::after {
+  left: auto; right: 0; background-image: var(--right-bay, none);
+  mask-image: linear-gradient(to left, black 91%, transparent 100%), linear-gradient(transparent, black 14%);
+}
+.yard-scene--rig::after {
+  width: 60%;
+  mask-image: linear-gradient(to right, transparent, black 6%), linear-gradient(transparent, black 14%);
+}
+.yard-scene .yard-car { z-index: 2; }
+.yard-scene:has(.yard-car--personal):has([data-work-car="scooter"]) {
+  --scooter-parking: 53%; --scooter-ground: 45%;
+}
+.door-label, .shelf-item span {
   color: #fff6df;
   background: #25241ef0;
   border: 1px solid #c9ad75;
@@ -8,29 +33,88 @@
   padding: .25rem .5rem;
   font: 600 .86rem/1.2 system-ui, sans-serif;
 }
-.yard-pin { position: absolute; top: 43%; min-height: 44px; transform: translateX(-50%); cursor: pointer; white-space: nowrap; }
-.yard-pin:nth-child(2) { left: 24%; }
-.yard-pin:nth-child(3) { left: 60%; }
+.yard-hotspot {
+  position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1;
+  padding: 0; border: 0; background: transparent; pointer-events: none;
+}
+.yard-hotspot svg { display: block; width: 100%; height: 100%; overflow: visible; }
+/* Cut the garage highlight off at the roof and windshield of the parked Lada. */
+.yard-scene[data-yard-level="1"]:is(:has(.yard-car--restore), :has([data-work-car="zhiguli"])) [data-screen-focus="garage"] svg {
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 93% 100%, 92% 52%, 88.5% 50.5%, 86.4% 44.5%, 85.4% 43.3%, 83.6% 42.6%, 78% 42.1%, 71.5% 42.3%, 67.2% 43%, 65.8% 44%, 63.2% 49.8%, 61.8% 50%, 59% 57%, 0 65%);
+}
+.yard-scene[data-yard-level="1"]:has(.yard-car--restore) [data-open-house-showroom] svg {
+  /* The scooter and planting conceal the masonry immediately beside the steps. */
+  mask-image: radial-gradient(ellipse 10% 9% at 29% 55%, transparent 68%, black);
+}
+.yard-hotspot polygon {
+  fill: transparent; stroke: transparent; stroke-width: 1.5px;
+  stroke-linejoin: round; vector-effect: non-scaling-stroke; pointer-events: all; cursor: pointer;
+  transition: stroke .16s ease, fill .16s ease;
+}
+@media (hover: hover) {
+  .yard-hotspot:hover polygon { stroke: #fffef0; fill: #fffef019; }
+}
+.yard-hotspot:focus-visible { outline: none; }
+.yard-hotspot:focus-visible polygon, .yard-hotspot:active polygon { stroke: #fffef0; fill: #fffef026; }
+@media (prefers-reduced-motion: reduce) {
+  .yard-hotspot polygon { transition: none; }
+}
 .yard-car {
-  position: absolute; right: 2%; bottom: 8%; width: 30%; min-height: 44px;
-  display: grid; justify-items: center; padding: 0; border: 0; border-radius: 10px;
+  position: absolute; left: var(--work-parking); bottom: var(--parking-ground); width: 37%;
+  min-width: 44px; min-height: 44px; transform: translateX(-50%);
+  display: grid; place-items: end center; padding: 0; border: 0; border-radius: 10px;
   background: transparent; cursor: pointer;
 }
-.yard-car img { display: block; width: 100%; aspect-ratio: 3/2; object-fit: contain; filter: drop-shadow(0 5px 4px #16140d99); }
+.yard-car img { display: block; width: 100%; height: auto; position: relative; filter: var(--yard-light); }
+.yard-car:not(.yard-car--photographed)::before {
+  content: ''; position: absolute; left: -8%; bottom: 2%; width: 104%; height: 27%;
+  transform: skewX(-26deg) rotate(-6deg);
+  background: radial-gradient(ellipse, #1e1824a6 14%, #48363361 48%, transparent 72%);
+  mix-blend-mode: multiply; pointer-events: none;
+}
+.yard-car--personal img { transform: scaleX(-1); }
+.yard-car--personal::before { rotate: 9deg; }
+.yard-car--photographed { height: 26%; }
+.yard-car--photographed[data-work-car="scooter"] { height: 16%; }
+.yard-scene--rig .yard-car[data-work-car="heavy"] { left: 73%; width: 49%; height: 25%; bottom: 21%; }
+.yard-scene[data-yard-level="2"] .yard-car--photographed[data-work-car="scooter"],
+.yard-scene[data-yard-level="3"] .yard-car--photographed[data-work-car="scooter"],
+.yard-scene[data-yard-level="5"] .yard-car--photographed[data-work-car="scooter"] { left: 22%; bottom: 32%; }
+.yard-scene[data-yard-level="4"] .yard-car--photographed[data-work-car="scooter"] { left: 12%; bottom: 25%; }
 .yard-car span {
-  padding: .28rem .55rem; border: 1px solid #c9ad75; border-radius: .45rem;
-  background: #25241ef0; color: #fff6df; font: 650 .83rem/1.2 system-ui, sans-serif;
+  position: absolute; top: 100%; left: 50%; transform: translateX(-50%); white-space: nowrap;
+  padding: .2rem .45rem; border: 1px solid #c9ad75; border-radius: .45rem;
+  background: #25241ef0; color: #fff6df; font: 650 clamp(.68rem, 1.4vw, .83rem)/1.2 system-ui, sans-serif;
+  opacity: 0; pointer-events: none;
 }
+.yard-car:focus-visible span, .yard-car:hover span { opacity: 1; }
 .yard-car:focus-visible { outline: 3px solid var(--amber); }
-.yard-car--restore { left: 4%; right: auto; bottom: 3%; }
-.yard-car--personal { left: 5%; right: auto; bottom: 4%; width: 34%; }
-.yard-car[data-work-car="scooter"] { width: 20%; }
-.yard-car[data-work-car="heavy"] { width: 43%; }
-.yard-scene[data-yard-level="4"] .yard-pin:nth-child(3),
-.yard-scene[data-yard-level="5"] .yard-pin:nth-child(3) { left: 75%; }
-@media (max-width: 560px) {
-  .yard-pin { top: 26%; }
+.yard-car--personal {
+  left: var(--personal-parking, 30%); bottom: var(--personal-ground, var(--parking-ground, 21%));
+  width: var(--personal-width, 22%);
 }
+.yard-car[data-work-car="scooter"] { left: var(--scooter-parking, 28%); bottom: var(--scooter-ground, 42%); width: 14%; }
+.yard-scene:has(.yard-car--personal) .yard-car[data-work-car="scooter"] span {
+  top: auto; bottom: 100%;
+}
+.yard-car[data-work-car="heavy"]:has(.vehicle-convoy) { width: 45%; }
+.yard-scene[data-yard-level="1"] { --parking-ground: 23%; }
+.yard-scene[data-yard-level="2"] { --personal-ground: 11%; }
+.yard-scene[data-yard-level="3"] { --personal-ground: 18%; --yard-light: sepia(.13) brightness(.96) contrast(1.05); }
+.yard-scene[data-yard-level="4"] { --personal-ground: 18%; --parking-ground: 22%; }
+.yard-scene[data-yard-level="5"] {
+  --work-parking: 77%;
+  --parking-ground: 39%;
+  --personal-parking: 22%;
+  --personal-ground: 17%;
+  --personal-width: 37%;
+  --yard-light: saturate(.85) brightness(.87) contrast(1.07);
+  --scooter-parking: 49%;
+  --scooter-ground: 41.5%;
+}
+.yard-scene[data-yard-level="5"] .yard-car:not(.yard-car--personal):not([data-work-car="scooter"]) { width: 26%; }
+.yard-scene[data-yard-level="5"] .yard-car[data-work-car="heavy"]:has(.vehicle-convoy) { width: 36%; }
+.yard-scene .vehicle-convoy img:last-child { transform: translate(-12%, -20%); }
 .vehicle-convoy {
   display: grid;
   grid-template-columns: minmax(0, 64fr) minmax(0, 42fr);
@@ -160,7 +244,7 @@
 .door-scene--tutorial .scene-prop--find-0 { --x: 6%; --y: 9%; --w: 51%; }
 .door-scene--tutorial .scene-prop--container-0 { --x: 63%; --y: 25%; --w: 26%; }
 .door-scene--tutorial .scene-prop--revealed { --x: 69%; --y: 8%; --w: 18%; }
-.shelf-scene, .yard-scene { margin-bottom: 1rem; }
+.shelf-scene { margin-bottom: 1rem; }
 
 .stage5__close.cargo-scene .stage5__art { transform: none; }
 .cargo-target {

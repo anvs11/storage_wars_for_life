@@ -22,7 +22,6 @@ export interface LifeState {
 }
 
 export const lifeStats = ['trust', 'interest', 'reliability', 'memories'] as const;
-export const workshopPrice = 32000;
 export const lifeScore = (life: LifeState) => lifeStats.reduce((sum, stat) => sum + life[stat], 0);
 export const weekOf = (day: number) => Math.floor((day - 1) / 7);
 export const isTurntable = (item: OwnedItem) => /проигрыватель/i.test(item.name);

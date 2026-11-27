@@ -93,8 +93,8 @@ it('сохраняет тюнинг и использованный вечерн
   const scooter = { category: 'work', model: 'scooter' } as const;
   const start = play(funded(2000000), auctions, enter, pass, homeFromLot, { type: 'buyVehicle', target: heavy, tradeIn: false },
     { type: 'navigate', room: 'car' }, { type: 'upgradeTransport', upgrade: 'reinforceSuspension' },
-    { type: 'upgradeTransport', upgrade: 'tuneEngine' }, { type: 'upgradeTransport', upgrade: 'highSideTrailer' },
-    { type: 'upgradeTransport', upgrade: 'containerTrailer' }, home, wait, wait, auctions, enter, pass, homeFromLot);
+    { type: 'upgradeTransport', upgrade: 'tuneEngine' }, { type: 'buyVehicle', target: { category: 'trailers', model: 2 }, tradeIn: false },
+    home, wait, wait, auctions, enter, pass, homeFromLot);
   expect(start.bonusAuctionUsed).toBe(true);
   const switched = reload(play(start, { type: 'activateVehicle', target: scooter }));
   expect(getView(switched).vehicle).toMatchObject({ model: 'scooter', capacity: 2 });
@@ -103,6 +103,28 @@ it('сохраняет тюнинг и использованный вечерн
     calendar: { bonusAuction: 'used' } });
   const hub = play(reactivated, auctions);
   expect(send(hub, enter)).toBe(hub);
+});
+
+it('открывает пять отдельных прицепов после покупки RAM и сохраняет выбор без повторной оплаты', () => {
+  const truck = { category: 'work', model: 'heavy' } as const;
+  const platform = { category: 'trailers', model: 3 } as const;
+  const reinforced = { category: 'trailers', model: 4 } as const;
+  const atHome = play(funded(2000000), auctions, enter, pass, homeFromLot);
+  expect(getView(atHome).showroom?.trailers).toHaveLength(5);
+  expect(getView(atHome).showroom?.trailers.every(card => card.blocked.length === 1)).toBe(true);
+  expect(send(atHome, { type: 'buyVehicle', target: reinforced, tradeIn: false })).toBe(atHome);
+  const owned = reload(play(atHome, { type: 'buyVehicle', target: truck, tradeIn: false }));
+  expect(getView(owned).vehicle).toEqual({ model: 'heavy', capacity: 8 });
+  const delivered = reload(play(owned, { type: 'buyVehicle', target: platform, tradeIn: false },
+    { type: 'buyVehicle', target: reinforced, tradeIn: false }));
+  expect(delivered.base.base.game.bank).toBe(owned.base.base.game.bank - 28000 - 80000);
+  expect(getView(delivered).vehicle).toEqual({ model: 'heavy', capacity: 14, trailer: 4 });
+  expect(send(delivered, { type: 'buyVehicle', target: reinforced, tradeIn: false })).toBe(delivered);
+  const detached = reload(play(delivered, { type: 'detachTrailer', target: reinforced }));
+  expect(getView(detached).vehicle).toEqual({ model: 'heavy', capacity: 8 });
+  const attached = reload(play(detached, { type: 'activateVehicle', target: platform }));
+  expect(getView(attached).vehicle).toEqual({ model: 'heavy', capacity: 9, trailer: 3 });
+  expect(attached.base.base.game.bank).toBe(delivered.base.base.game.bank);
 });
 
 function lifeProfile(): Stage7State {
@@ -186,16 +208,16 @@ it('предлагает частную продажу через чат и на
 });
 
 it('хранит проигрыватель дома и применяет цену мастерской в карточке и при ремонте', () => {
-  const remodeled = play(lifeProfile(), auctions, { type: 'spend', offerId: 'home' }, home);
+  const remodeled = play(lifeProfile(), home, { type: 'buyHouse', level: 2 });
   expect(getView(remodeled).life.home.level).toBe(2);
   const oldGarage = getView(play(remodeled, { type: 'navigate', room: 'garage' })).screen;
   expect(oldGarage).toMatchObject({ items: expect.arrayContaining([expect.objectContaining({
     id: 'damaged-test', repair: expect.objectContaining({ price: 500 }),
   })]) });
-  const workshop = reload(play(remodeled, { type: 'buyWorkshop' }, { type: 'displayTurntable' }));
+  const workshop = reload(play(remodeled, { type: 'buyHouse', level: 3 }, { type: 'displayTurntable' }));
   expect(getView(workshop).life.home).toMatchObject({ level: 3, display: 'Проигрыватель' });
-  expect(workshop.base.base.game.bank).toBe(30000);
-  expect(send(workshop, { type: 'buyWorkshop' })).toBe(workshop);
+  expect(workshop.base.base.game.bank).toBe(7000);
+  expect(send(workshop, { type: 'buyHouse', level: 3 })).toBe(workshop);
   const garage = play(workshop, { type: 'navigate', room: 'garage' });
   const view = getView(garage).screen;
   if (view.phase !== 'garage') throw new Error('Ожидается гараж');
@@ -203,25 +225,44 @@ it('хранит проигрыватель дома и применяет це�
   expect(view.items.some(({ id }) => id === 'turntable-test')).toBe(false);
   expect(send(garage, { type: 'discardItem', itemId: 'turntable-test' })).toBe(garage);
   const repaired = reload(play(garage, { type: 'repairItem', itemId: 'damaged-test' }, home, { type: 'retrieveTurntable' }));
-  expect(repaired.base.base.game.bank).toBe(29625);
+  expect(repaired.base.base.game.bank).toBe(6625);
   expect(getView(repaired).life.home.displayCandidate).toBe('Проигрыватель');
 });
 
 it('меняет двор при переезде, а вместимость гаража при покупке стеллажей', () => {
   const start = lifeProfile();
   const rich = { ...start, base: { ...start.base, base: { ...start.base.base, game: { ...start.base.base.game, bank: 4000000 } } } } as Stage7State;
-  const renovated = play(rich, auctions, { type: 'spend', offerId: 'home' }, home, { type: 'buyWorkshop' });
-  expect(send(renovated, { type: 'buyHouse', level: 5 })).toBe(renovated);
-  const estate = reload(play(renovated, { type: 'displayTurntable' }, { type: 'buyHouse', level: 4 }, { type: 'buyHouse', level: 5 }));
+  const estate = reload(play(rich, home, { type: 'buyHouse', level: 5 }, { type: 'displayTurntable' }));
+  expect(estate.base.base.game.bank).toBe(1200000);
   expect(getView(estate)).toMatchObject({ screen: { house: 5, workshop: true, garage: { limit: 8 } },
     life: { home: { level: 5, display: 'Проигрыватель' } } });
   expect(send(estate, { type: 'buyHouse', level: 5 })).toBe(estate);
+  expect(send(estate, { type: 'buyHouse', level: 4 })).toBe(estate);
   expect(send(estate, { type: 'buyCapacity', target: 'garage' })).toBe(estate);
   const garage = play(estate, { type: 'navigate', room: 'garage' });
   expect(send(garage, { type: 'buyCapacity', target: 'shelves' })).toBe(garage);
   const racks = reload(play(garage, { type: 'buyCapacity', target: 'garage' }, { type: 'buyCapacity', target: 'shelves' }));
   expect(getView(racks).screen).toMatchObject({ garage: { limit: 24 } });
   expect(send(racks, { type: 'buyCapacity', target: 'shelves' })).toBe(racks);
+});
+
+it('покупает дом только со двора за указанную цену и начисляет очки один раз', () => {
+  const buy = { type: 'buyHouse', level: 2 } as const;
+  const bank = 23000;
+  const garage = funded(bank, 4);
+  expect(send(garage, buy)).toBe(garage);
+  const hub = play(garage, auctions);
+  expect(send(hub, { type: 'spend', offerId: 'home' })).toBe(hub);
+  const view = getView(hub).screen;
+  expect(view.phase === 'hub' && view.offers.some(({ id }) => id === 'home')).toBe(false);
+  const tooPoor = play(funded(bank - 1, 4), home);
+  expect(send(tooPoor, buy)).toBe(tooPoor);
+  const yard = play(garage, home);
+  const bought = reload(play(yard, buy));
+  expect(getView(bought).life.home.level).toBe(2);
+  expect(bought.base.base.game).toMatchObject({ bank: 0, status: 9, assets: ['home'] });
+  expect(applyCommand(bought, { ...buy, expectedRevision: revision(yard) })).toBe(bought);
+  expect(send(bought, buy)).toBe(bought);
 });
 
 it('продаёт личные машины после городского выезда с зачётом прежней, не трогая рабочий транспорт', () => {
@@ -609,7 +650,7 @@ it('проверяет нехватку рубля и отдельно позд�
 });
 
 it('добавляет дату к сохранённому эпилогу v5 и прежнему v6 с сохранением текущей недели', () => {
-  const finale = play(funded(50000, 18), auctions, { type: 'spend', offerId: 'home' }, { type: 'spend', offerId: 'car' },
+  const finale = play(funded(50000, 18), home, { type: 'buyHouse', level: 2 }, auctions, { type: 'spend', offerId: 'car' },
     openStory, meetNeighbor, { type: 'buyFlowers' }, { type: 'inviteToCinema' }, closePhoto,
     { type: 'inviteToDinner' }, closePhoto, { type: 'confirmMoveIn' }, leaveStory, home);
   const storage = memory();

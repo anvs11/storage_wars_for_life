@@ -12,8 +12,11 @@
 .showroom::backdrop { background: #060b09bd; }
 .showroom__header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .6rem; }
 .showroom__header h1 { font-size: clamp(1.35rem, 3vw, 2.2rem); }
+.house-showroom .showroom__header { margin-bottom: 1rem; }
+.house-showroom__photo { display: block; width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 12px; }
+.house-showroom .garage__button:disabled { opacity: .5; cursor: default; }
 .showroom__tabs { display: flex; gap: .65rem; margin-block: 1rem; }
-.showroom__tabs button { flex: 1; }
+.showroom__tabs button { flex: 1; min-width: 0; padding-inline: .35rem; white-space: nowrap; }
 .showroom__layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); gap: 1rem; align-items: start; }
 .showroom__visual { display: grid; gap: .6rem; }
 .showroom__model {
@@ -41,5 +44,7 @@
   .showroom__layout { grid-template-columns: minmax(0, 1fr); gap: .65rem; }
   .showroom__model img { max-height: min(24vh, 210px); }
   .showroom__tabs { margin-block: .65rem; }
+  .showroom__tabs button { font-size: .85rem; }
   .showroom__header .garage__bank { padding: 6px; }
+  .house-showroom__photo { max-height: 28svh; object-fit: contain; background: #111919; }
 }

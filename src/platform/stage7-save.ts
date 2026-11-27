@@ -10,7 +10,7 @@ import type { FamilyDate } from '../game/stage7-family';
 import { baggageItems, boxVolume, fleaCapacity, fleaMorning, initialFlea } from '../game/stage7-flea';
 import type { FleaReceipt, FleaSale } from '../game/stage7-flea';
 import { economyFor, transportFor } from '../game/stage5-engine';
-import { hasBonusAuction, transportModels } from '../game/transport';
+import { hasBonusAuction, trailerIds, transportModels } from '../game/transport';
 import type { TransportState } from '../game/transport';
 import type { Fleet } from '../game/showroom';
 import { isTurntable, lifeChoices, lifeEvents, lifeStats, weekOf } from '../game/life';
@@ -168,6 +168,8 @@ function isFleet(value: unknown, active: TransportState, personal: unknown, city
   if (!isRecord(value) || !exactKeys(value, [
     'work', 'personal', ...(Object.hasOwn(value, 'workGoal') ? ['workGoal'] : []),
     ...(Object.hasOwn(value, 'personalGoal') ? ['personalGoal'] : []),
+    ...(Object.hasOwn(value, 'trailers') ? ['trailers'] : []),
+    ...(Object.hasOwn(value, 'trailerGoal') ? ['trailerGoal'] : []),
   ])) return false;
   if (!Array.isArray(value.work) || value.work.length > transportModels.length || !value.work.every(isTransport)) return false;
   const models = value.work.map(entry => entry.model);
@@ -179,8 +181,14 @@ function isFleet(value: unknown, active: TransportState, personal: unknown, city
   if (!areIds(owned, ids) || (personal === undefined ? owned.length !== 0 :
     typeof personal !== 'string' || !owned.includes(personal))) return false;
   if (owned.length && (cityVisit !== true || personalCars.some(car => owned.includes(car.id) && status < car.status))) return false;
+  const heavy = value.work.find(entry => entry.model === 'heavy');
+  const trailers = value.trailers;
+  if (trailers !== undefined && (!Array.isArray(trailers) || trailers.length > trailerIds.length ||
+      new Set(trailers).size !== trailers.length || !trailers.every(id => trailerIds.some(known => id === known)) ||
+      (!heavy && trailers.length) || (heavy?.trailer != null && !trailers.includes(heavy.trailer)))) return false;
   return (value.workGoal === undefined || transportModels.some(model => model === value.workGoal)) &&
-    (value.personalGoal === undefined || ids.some(id => id === value.personalGoal));
+    (value.personalGoal === undefined || ids.some(id => id === value.personalGoal)) &&
+    (value.trailerGoal === undefined || trailerIds.some(id => id === value.trailerGoal));
 }
 
 function readStage7(value: unknown, fleaLimit = fleaCapacity): Stage7State | null {

@@ -1,16 +1,19 @@
 import { personalCars } from './personal-cars';
 import type { PersonalCar } from './personal-cars';
-import { describeVehicle, hasBonusAuction, transportModels, transportNames, workModelOffer } from './transport';
-import type { TransportModel, TransportState } from './transport';
+import { describeVehicle, hasBonusAuction, trailerCatalog, trailerIds, transportModels, transportNames, workModelOffer } from './transport';
+import type { Trailer, TransportModel, TransportState } from './transport';
 
-export type ShowroomTarget = { readonly category: 'personal'; readonly model: PersonalCar }
+type VehicleTarget = { readonly category: 'personal'; readonly model: PersonalCar }
   | { readonly category: 'work'; readonly model: TransportModel };
+export type ShowroomTarget = VehicleTarget | { readonly category: 'trailers'; readonly model: Trailer };
 
 export interface Fleet {
   readonly work: readonly TransportState[];
   readonly personal: readonly PersonalCar[];
   readonly workGoal?: TransportModel;
   readonly personalGoal?: PersonalCar;
+  readonly trailers?: readonly Trailer[];
+  readonly trailerGoal?: Trailer;
 }
 
 export interface ShowroomContext {
@@ -35,7 +38,7 @@ export function existingFleet(work: TransportState, personal?: PersonalCar): Fle
   return { work: work.model === 'scooter' ? [work] : [{ model: 'scooter' }, work], personal: personal ? [personal] : [] };
 }
 
-export function showroomCard(context: ShowroomContext, target: ShowroomTarget) {
+export function showroomCard(context: ShowroomContext, target: VehicleTarget) {
   const { fleet, bank, status } = context;
   const personal = target.category === 'personal' ? personalCars.find(car => car.id === target.model) : undefined;
   const work = target.category === 'work' ? fleet.work.find(car => car.model === target.model) : undefined;
@@ -59,9 +62,34 @@ export function showroomCard(context: ShowroomContext, target: ShowroomTarget) {
     classLabel: target.category === 'work' ? workClasses[target.model] : personalClasses[target.model],
     goal: (target.category === 'work' ? fleet.workGoal : fleet.personalGoal) === target.model,
     statusRequired: personal?.status,
+    trailerCapacity: undefined,
     vehicle: vehicle && describeVehicle(vehicle),
     auctions: vehicle && (hasBonusAuction(vehicle) ? 4 : 3),
     bulky: vehicle && (vehicle.model === 'pickup' || vehicle.model === 'van' || vehicle.model === 'heavy'),
+  };
+}
+
+export function ownedTrailers(fleet: Fleet): readonly Trailer[] {
+  if (fleet.trailers) return fleet.trailers;
+  const heavy = fleet.work.find(entry => entry.model === 'heavy');
+  return heavy?.trailer == null ? [] : [heavy.trailer];
+}
+
+export function trailerCard(context: ShowroomContext, model: Trailer) {
+  const definition = trailerCatalog[model];
+  if (!definition) return null;
+  const heavy = context.fleet.work.find(entry => entry.model === 'heavy');
+  const fullMissing = Math.max(0, definition.price - context.bank);
+  return {
+    ...definition,
+    target: { category: 'trailers', model } as const,
+    owned: ownedTrailers(context.fleet).includes(model),
+    active: heavy?.trailer === model,
+    blocked: heavy ? [] : ['Сначала купи тяжёлый пикап RAM.'],
+    goal: context.fleet.trailerGoal === model,
+    fullMissing,
+    tradeIn: 0, tradeMissing: fullMissing, trailerCapacity: definition.capacity,
+    statusRequired: undefined, vehicle: undefined, auctions: undefined, bulky: undefined,
   };
 }
 
@@ -70,5 +98,6 @@ export function showroomView(context: ShowroomContext) {
     status: context.status,
     work: transportModels.map(model => showroomCard(context, { category: 'work', model })),
     personal: personalCars.map(({ id }) => showroomCard(context, { category: 'personal', model: id })),
+    trailers: trailerIds.map(model => trailerCard(context, model)!),
   };
 }

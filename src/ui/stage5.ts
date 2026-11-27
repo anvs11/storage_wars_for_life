@@ -19,8 +19,11 @@ import travelCamera from './assets/stage6-travel-camera.png';
 import { actionButton, addFact, bankFor, element, replaceScreen, rubles } from './dom';
 import { garageScenes } from './garage-scenes';
 import { personalCarPicture, vehicleName, vehiclePicture } from './vehicle';
-import { yards } from './yards';
-import { trailerNames } from '../game/transport';
+import { parkedPhoto, yards } from './yards';
+import { yardHotspot } from './yard-hotspots';
+import { houseLevel } from '../game/houses';
+import { personalCars } from '../game/personal-cars';
+import { trailerCatalog } from '../game/transport';
 import { receiptFacts } from './inventory';
 import './stage5.css';
 
@@ -95,7 +98,7 @@ export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5
 
   const packed = (id: string) => flea?.data.packing.some((item) => item.id === id && item.selected) ?? false;
 
-  const screen = element('section', 'garage stage5');
+  const screen = element('section', view.phase === 'home' ? 'garage stage5 stage5--home' : 'garage stage5');
   const label = view.phase === 'opening' ? frames[view.frame].title
     : view.phase === 'baggageArrival' ? 'Курьер из аэропорта'
     : view.phase === 'cargo' ? view.baggage ? 'Чемодан' : `Гараж куплен · лот №${view.lotNumber}`
@@ -283,7 +286,9 @@ function mountRoomContents(screen: HTMLElement, view: RoomView, button: Control,
   const navigation = element('nav', 'stage5__nav');
   navigation.setAttribute('aria-label', 'Места');
   for (const room of roomNames) {
-    const label = room === 'inbox' && view.unread ? `Сообщения (${view.unread})` : roomLabels[room];
+    if (view.phase === 'home' && (room === 'home' || room === 'garage')) continue;
+    const label = room === 'home' ? 'Во двор'
+      : room === 'inbox' && view.unread ? `Сообщения (${view.unread})` : roomLabels[room];
     const item = button(label, { type: 'navigate', room }, room);
     if (room === view.phase) item.setAttribute('aria-current', 'page');
     navigation.append(item);
@@ -298,57 +303,60 @@ function mountRoomContents(screen: HTMLElement, view: RoomView, button: Control,
   screen.append(navigation);
 
   if (view.phase === 'home') {
-    const level = view.house ?? (view.workshop ? 3 : view.homeImproved ? 2 : 1);
+    const level = houseLevel(view.house, view.workshop, Boolean(view.homeImproved));
     const { image, alt } = yards[level];
     const photo = art(image, alt);
-    photo.classList.add('stage5__home');
     const yardScene = element('div', 'yard-scene');
     yardScene.dataset.yardLevel = String(level);
     yardScene.append(photo);
-    for (const [label, room, selector] of [
-      ['Дом', 'auctions', '[data-home-offer]'],
-      ['Гараж', 'garage', '.shelf-scene'],
-    ] as const) {
-      const hotspot = actionButton(label, 'yard-pin', () => {
-        const homeProjects = label === 'Дом' ? screen.querySelector<HTMLElement>('[data-home-projects]') : null;
-        if (homeProjects) {
-          homeProjects.focus();
-          return;
-        }
-        send({ type: 'navigate', room });
-        const destination = document.querySelector<HTMLElement>(selector);
-        if (destination instanceof HTMLDetailsElement) destination.open = true;
-        if (destination) {
-          destination.tabIndex = -1;
-          destination.focus();
-        }
-      });
-      yardScene.append(hotspot);
-    }
+    const house = yardHotspot(level, 'home');
+    house.dataset.openHouseShowroom = '';
+    const garage = yardHotspot(level, 'garage', () => send({ type: 'navigate', room: 'garage' }));
+    garage.dataset.screenFocus = 'garage';
+    yardScene.append(house, garage);
     const model = view.vehicle?.model ?? 'zhiguli';
+    const restoring = model === 'scooter' && !view.personalCar;
+    const leftParked = parkedPhoto(level, restoring ? 'scooter' : view.personalCar);
+    const trailer = view.vehicle?.trailer;
+    const rightModel = trailer != null ? `rig-${trailer}` : restoring ? 'zhiguli' : model;
+    const rightParked = restoring || model !== 'scooter' ? parkedPhoto(level, rightModel) : undefined;
+    yardScene.classList.toggle('yard-scene--rig', trailer != null);
+    if (leftParked) yardScene.style.setProperty('--left-bay', `url("${leftParked}")`);
+    if (rightParked) yardScene.style.setProperty('--right-bay', `url("${rightParked}")`);
     const car = button('', { type: 'navigate', room: 'car' }, 'yard-car');
     car.className = 'yard-car';
     car.dataset.workCar = model;
+    car.classList.toggle('yard-car--photographed', Boolean(restoring ? leftParked : rightParked));
     car.setAttribute('aria-label', `Осмотреть транспорт: ${vehicleName[model]}`);
-    car.append(vehiclePicture(model, view.vehicle?.trailer), element('span', '', model === 'scooter' ? 'Скутер' : 'Рабочая'));
+    if (!car.classList.contains('yard-car--photographed')) car.append(vehiclePicture(model, trailer));
+    car.append(element('span', '', model === 'scooter' ? 'Скутер' : 'Рабочая'));
     yardScene.append(car);
     if (view.personalCar) {
       const personal = element('button', 'yard-car yard-car--personal');
       personal.type = 'button';
       personal.dataset.openShowroom = 'personal';
-      const picture = personalCarPicture(view.personalCar);
       personal.dataset.personalCar = view.personalCar;
-      personal.setAttribute('aria-label', `Личная машина: ${picture.alt}`);
-      personal.append(picture, element('span', '', 'Личная'));
+      personal.classList.toggle('yard-car--photographed', Boolean(leftParked));
+      const name = personalCars.find(({ id }) => id === view.personalCar)!.name;
+      personal.setAttribute('aria-label', `Личная машина: ${name}`);
+      if (!leftParked) personal.append(personalCarPicture(view.personalCar));
+      personal.append(element('span', '', 'Личная'));
       yardScene.append(personal);
-    } else if (model === 'scooter') {
+    } else if (restoring) {
       const sedan = button('', { type: 'navigate', room: 'car' }, 'yard-restoration');
       sedan.className = 'yard-car yard-car--restore';
+      sedan.classList.toggle('yard-car--photographed', Boolean(rightParked));
       sedan.setAttribute('aria-label', 'Жигули ждут ремонта. Посмотреть стоимость');
-      sedan.append(vehiclePicture('zhiguli'), element('span', '', 'Жигули'));
+      if (!rightParked) sedan.append(vehiclePicture('zhiguli'));
+      sedan.append(element('span', '', 'Жигули'));
       yardScene.append(sedan);
     }
-    navigation.before(yardScene);
+    const hero = element('div', 'yard-hero');
+    const footer = element('div', 'yard-footer');
+    hero.style.setProperty('--yard-backdrop', `url("${image}")`);
+    navigation.before(hero);
+    footer.append(navigation);
+    hero.append(screen.querySelector('.garage__header')!, yardScene, footer);
   }
   if (view.phase === 'garage') renderGarage(screen, view, button, send, pack);
   if (view.phase === 'car' && view.vehicle) {
@@ -359,9 +367,10 @@ function mountRoomContents(screen: HTMLElement, view: RoomView, button: Control,
     const facts = element('dl', 'garage__facts');
     addFact(facts, 'Транспорт', vehicleName[view.vehicle.model]);
     addFact(facts, 'Мест для груза', String(view.vehicle.capacity));
-    if (view.vehicle.trailer !== undefined) addFact(facts, 'Прицеп', trailerNames[view.vehicle.trailer]);
+    if (view.vehicle.trailer !== undefined) addFact(facts, 'Прицеп', trailerCatalog[view.vehicle.trailer].name);
     panel.append(facts);
     for (const offer of view.vehicle.model === 'heavy' ? view.transportOffers ?? [] : []) {
+      if (offer.id === 'highSideTrailer' || offer.id === 'containerTrailer') continue;
       const section = element('section', 'vehicle-upgrade');
       const remainder = view.bank - offer.price;
       section.append(element('h2', 'garage__heading', offer.label),
@@ -372,6 +381,12 @@ function mountRoomContents(screen: HTMLElement, view: RoomView, button: Control,
       buy.disabled = remainder < 0 || offer.blocked !== null;
       section.append(buy);
       panel.append(section);
+    }
+    if (view.vehicle.model === 'heavy') {
+      const trailers = element('button', buttonClass, 'Выбрать прицеп');
+      trailers.type = 'button';
+      trailers.dataset.openShowroom = 'trailers';
+      panel.append(trailers);
     }
     panel.append(button('Во двор', { type: 'navigate', room: 'home' }, 'yard-car'));
     layout.append(picture, panel);

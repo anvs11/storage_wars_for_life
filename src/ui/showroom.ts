@@ -1,8 +1,8 @@
 import type { Stage7Dispatch, Stage7View } from '../game/stage7-engine';
 import type { ShowroomTarget } from '../game/showroom';
-import { trailerNames } from '../game/transport';
+import { heavyCapacity, trailerCatalog } from '../game/transport';
 import { actionButton, addFact, bankFor, element, rubles } from './dom';
-import { personalCarPicture, vehiclePicture } from './vehicle';
+import { personalCarPicture, trailerPicture, vehiclePicture } from './vehicle';
 import './showroom.css';
 
 const buttonClass = 'garage__button';
@@ -16,7 +16,7 @@ export function createShowroom(root: HTMLElement, dispatch: Stage7Dispatch) {
   root.after(dialog);
   let view: Stage7View | undefined;
   let category: Category = 'work';
-  const index: Record<Category, number> = { work: 0, personal: 0 };
+  const index: Record<Category, number> = { work: 0, personal: 0, trailers: 0 };
   let confirm: 'full' | 'trade' | null = null;
   let origin: HTMLElement | null = null;
   let errorMessage = '';
@@ -39,11 +39,15 @@ export function createShowroom(root: HTMLElement, dispatch: Stage7Dispatch) {
     header.append(button('Назад', 'close', () => dialog.close()), title, bankFor(view.screen.bank));
     const tabs = element('nav', 'showroom__tabs');
     tabs.setAttribute('aria-label', 'Категория транспорта');
-    for (const [key, label] of [['work', 'Рабочий'], ['personal', 'Личный']] as const) {
+    function openCategory(key: Category) {
+      category = key;
+      confirm = null;
+      errorMessage = '';
+      render(key);
+    }
+    for (const [key, label] of [['work', 'Рабочий'], ['personal', 'Личный'], ['trailers', 'Прицепы']] as const) {
       const tab = button(label, key, () => {
-        category = key;
-        confirm = null;
-        render(key);
+        openCategory(key);
       }, category === key);
       tab.setAttribute('aria-pressed', String(category === key));
       tabs.append(tab);
@@ -58,7 +62,8 @@ export function createShowroom(root: HTMLElement, dispatch: Stage7Dispatch) {
     const visual = element('section', 'showroom__visual');
     const model = element('div', 'showroom__model');
     if (card.target.category === 'personal') model.append(personalCarPicture(card.target.model));
-    else if (card.vehicle) model.append(vehiclePicture(card.vehicle.model, card.vehicle.trailer));
+    else if (card.target.category === 'trailers') model.append(trailerPicture(card.target.model));
+    else if (card.vehicle) model.append(vehiclePicture(card.vehicle.model));
     const controls = element('div', 'showroom__arrows');
     const previous = button('‹', 'previous', () => step(-1, 'previous'));
     previous.setAttribute('aria-label', 'Предыдущая модель');
@@ -75,23 +80,37 @@ export function createShowroom(root: HTMLElement, dispatch: Stage7Dispatch) {
     live.setAttribute('aria-live', 'polite');
     live.append(heading, element('p', 'hub__detail', card.classLabel));
     const available = !card.blocked.length && (!card.fullMissing || card.tradeIn && !card.tradeMissing);
-    panel.append(live, element('p', 'showroom__state', card.active ? 'Активна' : card.owned ? 'В собственности' :
+    panel.append(live, element('p', 'showroom__state', card.active ? category === 'trailers' ? 'Подсоединён' : 'Активна'
+      : card.owned ? 'В собственности' :
       available ? 'Доступна' : 'Заблокирована'));
     const facts = element('dl', 'garage__facts');
     if (card.target.category === 'personal') {
       addFact(facts, 'Социальный рейтинг', `${catalog.status} / ${card.statusRequired}`);
       panel.append(element('p', 'hub__detail', 'Используется в поездках по городу.'));
+    } else if (card.target.category === 'trailers') {
+      addFact(facts, 'Грузовых мест с RAM', String(card.trailerCapacity));
+      addFact(facts, 'Дополнительных мест', String((card.trailerCapacity ?? heavyCapacity) - heavyCapacity));
     } else if (card.vehicle) {
       addFact(facts, 'Грузовых мест', String(card.vehicle.capacity));
       addFact(facts, 'Длинномер', card.bulky ? 'Поместится' : 'Не поместится');
       addFact(facts, 'До аукционов за день', String(card.auctions));
-      if (card.vehicle.trailer !== undefined) addFact(facts, 'Прицеп', trailerNames[card.vehicle.trailer]);
+      if (card.vehicle.trailer !== undefined) addFact(facts, 'Установлен', trailerCatalog[card.vehicle.trailer].name);
     }
     panel.append(facts);
+    if (card.target.category === 'work' && card.target.model === 'heavy') {
+      panel.append(element('p', 'hub__detail', card.owned
+        ? 'Поддерживает все пять прицепов. Без прицепа — 8 грузовых мест.'
+        : 'Покупка открывает пять вариантов прицепов.'),
+        button('Смотреть прицепы', 'show-trailers', () => openCategory('trailers')));
+    }
     if (card.owned) {
-      if (!card.active) panel.append(button('Выбрать', 'activate', () => dispatch({
+      if (!card.active) panel.append(button(category === 'trailers' ? 'Подсоединить' : 'Выбрать', 'activate', () => dispatch({
         type: 'activateVehicle', target: card.target, expectedRevision: revision,
       }), true));
+      if (card.active && card.target.category === 'trailers') {
+        const target = card.target;
+        panel.append(button('Отсоединить', 'detach', () => dispatch({ type: 'detachTrailer', target, expectedRevision: revision })));
+      }
       if (card.active && card.target.category === 'work' && card.target.model === 'heavy') {
         panel.append(button('К тюнингу', 'tuning', () => {
           dialog.close();
@@ -123,7 +142,8 @@ export function createShowroom(root: HTMLElement, dispatch: Stage7Dispatch) {
         const tradeIn = confirm === 'trade';
         const total = card.price - (tradeIn ? card.tradeIn : 0);
         const review = element('section', 'showroom__confirm');
-        const result = tradeIn ? `После покупки ${active?.name} уйдёт в зачёт.` : active ? 'Прежняя машина останется у тебя.' : '';
+        const result = tradeIn ? `После покупки ${active?.name} уйдёт в зачёт.`
+          : category === 'trailers' ? 'Прицеп будет подсоединён к RAM.' : active ? 'Прежняя машина останется у тебя.' : '';
         if (result) review.append(element('p', '', result));
         review.append(
           element('p', '', `Списать ${rubles(total)} · останется ${rubles(balance - total)}`),
@@ -154,7 +174,7 @@ export function createShowroom(root: HTMLElement, dispatch: Stage7Dispatch) {
     const layout = element('div', 'showroom__layout');
     layout.append(visual, panel);
     dialog.replaceChildren(header, tabs, layout);
-    if (focus === 'model' || focus === 'next' || focus === 'previous' || focus === 'work' || focus === 'personal') dialog.scrollTop = 0;
+    if (focus === 'model' || focus === 'next' || focus === 'previous' || focus === category) dialog.scrollTop = 0;
     if (focus) dialog.querySelector<HTMLElement>(`[data-showroom-focus="${focus}"]`)?.focus({ preventScroll: true });
   }
 
@@ -177,7 +197,8 @@ export function createShowroom(root: HTMLElement, dispatch: Stage7Dispatch) {
   root.addEventListener('click', event => {
     const trigger = (event.target as HTMLElement).closest<HTMLElement>('[data-open-showroom]');
     if (!trigger || !view?.showroom || dialog.open) return;
-    category = trigger.dataset.openShowroom === 'personal' ? 'personal' : 'work';
+    const tab = trigger.dataset.openShowroom;
+    category = tab === 'personal' || tab === 'trailers' ? tab : 'work';
     index[category] = Math.max(0, view.showroom[category].findIndex(card => card.active));
     origin = trigger;
     render();
@@ -193,7 +214,7 @@ export function createShowroom(root: HTMLElement, dispatch: Stage7Dispatch) {
       if (!next.showroom) return dialog.close();
       confirm = null;
       errorMessage = '';
-      render(focus === 'confirm' || focus === 'activate' ? 'model' : focus);
+      render(focus === 'confirm' || focus === 'activate' || focus === 'detach' ? 'model' : focus);
     },
     error(message: string) {
       if (!dialog.open) return;
@@ -205,12 +226,16 @@ export function createShowroom(root: HTMLElement, dispatch: Stage7Dispatch) {
 
 function comparisonFor(active: Card | undefined, card: Card): HTMLDListElement {
   const facts = element('dl', 'garage__facts');
-  addFact(facts, 'Модель', `${active?.name ?? 'Нет машины'} → ${card.name}`);
-  if (card.vehicle) {
+  if (card.target.category === 'trailers') {
+    addFact(facts, 'Прицеп', `${active?.name ?? 'Без прицепа'} → ${card.name}`);
+    addFact(facts, 'Грузовых мест с RAM', `${active?.trailerCapacity ?? heavyCapacity} → ${card.trailerCapacity}`);
+  } else if (card.vehicle) {
+    addFact(facts, 'Модель', `${active?.name ?? 'Нет машины'} → ${card.name}`);
     addFact(facts, 'Груз', `${active?.vehicle?.capacity ?? '—'} → ${card.vehicle.capacity}`);
     addFact(facts, 'Аукционов в день', `${active?.auctions ?? '—'} → ${card.auctions}`);
     addFact(facts, 'Длинномер', `${active?.bulky ? 'Да' : 'Нет'} → ${card.bulky ? 'Да' : 'Нет'}`);
   } else {
+    addFact(facts, 'Модель', `${active?.name ?? 'Нет машины'} → ${card.name}`);
     addFact(facts, 'Цена', `${active ? rubles(active.price) : '—'} → ${rubles(card.price)}`);
     addFact(facts, 'Нужно очков статуса', `${active?.statusRequired ?? '—'} → ${card.statusRequired}`);
   }

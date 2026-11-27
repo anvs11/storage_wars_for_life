@@ -227,7 +227,7 @@ export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage
       parked.append(actionButton(`Разобрать лот №${lot.lotNumber} · куплен за ${rubles(lot.purchasePrice)}`, 'garage__button',
         () => dispatch({ type: 'resumeLot', expectedRevision, lotNumber: lot.lotNumber })));
     }
-    scene?.querySelector('.garage__header')?.after(parked);
+    scene?.querySelector(screen.phase === 'home' ? '.yard-hero' : '.garage__header')?.after(parked);
   }
   if (calendar.period === 'evening' && ['home', 'garage', 'car', 'market', 'inbox', 'hub'].includes(screen.phase)) {
     const atHome = screen.phase === 'home';
@@ -245,7 +245,8 @@ export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage
       auctionLink.disabled = true;
       auctionLink.textContent = 'Торги завтра';
     }
-    scene?.querySelector('.garage__header')?.after(notice);
+    if (atHome) scene?.querySelector('.yard-footer')?.prepend(notice);
+    else scene?.querySelector('.garage__header')?.after(notice);
     if (returningToRest) rest.focus({ preventScroll: true });
   }
   const datePanel = familyDatePanel(view, dispatch);

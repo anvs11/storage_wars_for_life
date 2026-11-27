@@ -3,7 +3,7 @@ export type TransportModel = typeof transportModels[number];
 
 export type TransportState =
   | { readonly model: Exclude<TransportModel, 'heavy'> }
-  | { readonly model: 'heavy'; readonly engine: 0 | 1 | 2; readonly trailer: 0 | 1 | 2 };
+  | { readonly model: 'heavy'; readonly engine: 0 | 1 | 2; readonly trailer: Trailer | null };
 
 export type TransportUpgrade = 'restoreZhiguli' | 'buyPickup' | 'buyVan' | 'buyHeavy'
   | 'reinforceSuspension' | 'tuneEngine' | 'highSideTrailer' | 'containerTrailer';
@@ -13,19 +13,27 @@ export const transportNames: Record<TransportModel, string> = {
   zhiguli: 'Жигули ВАЗ-2107',
   pickup: 'Старый пикап',
   van: 'Грузовой фургон',
-  heavy: 'Тяжёлый пикап',
+  heavy: 'Тяжёлый пикап RAM',
 };
 
-export const trailerNames = ['Открытый прицеп', 'Бортовой прицеп', 'Контейнерный прицеп'] as const;
+export const trailerIds = [3, 0, 1, 4, 2] as const;
+export type Trailer = typeof trailerIds[number];
+export const heavyCapacity = 8;
+export const trailerCatalog = {
+  3: { name: 'Платформа', price: 28000, capacity: 9, classLabel: 'Лёгкий прицеп' },
+  0: { name: 'Открытый прицеп', price: 42000, capacity: 10, classLabel: 'Универсальный' },
+  1: { name: 'Бортовой прицеп', price: 48000, capacity: 12, classLabel: 'Высокие борта' },
+  4: { name: 'Усиленный прицеп', price: 80000, capacity: 14, classLabel: 'Две оси' },
+  2: { name: 'Контейнерный прицеп', price: 110000, capacity: 16, classLabel: 'Закрытый кузов' },
+} as const;
 
 const sizes = { scooter: 2, zhiguli: 4, pickup: 6, van: 8, heavy: 10 } as const;
-const trailerSizes = [10, 12, 16] as const;
 
 export function describeVehicle(transport: TransportState) {
   return {
     model: transport.model,
-    capacity: transport.model === 'heavy' ? trailerSizes[transport.trailer] : sizes[transport.model],
-    ...(transport.model === 'heavy' ? { trailer: transport.trailer } : {}),
+    capacity: transport.model === 'heavy' ? transport.trailer === null ? heavyCapacity : trailerCatalog[transport.trailer].capacity : sizes[transport.model],
+    ...(transport.model === 'heavy' && transport.trailer !== null ? { trailer: transport.trailer } : {}),
   };
 }
 
@@ -42,7 +50,8 @@ const replacement: Partial<Record<TransportModel, Offer>> = {
 };
 
 export function workModelOffer(model: TransportModel): Offer | undefined {
-  return Object.values(replacement).find(offer => offer.next.model === model);
+  const offer = Object.values(replacement).find(offer => offer.next.model === model);
+  return offer?.next.model === 'heavy' ? { ...offer, next: { ...offer.next, trailer: null } } : offer;
 }
 
 export function transportOffers(transport: TransportState): Offer[] {

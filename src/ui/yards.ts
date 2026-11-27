@@ -1,8 +1,16 @@
-import inherited from './assets/yard-inherited.jpg';
-import renovated from './assets/yard-renovated.jpg';
-import workshop from './assets/yard-workshop.jpg';
-import gallery from './assets/yard-gallery.jpg';
-import estate from './assets/yard-estate.jpg';
+import inherited from './assets/yard-parking-1.jpg';
+import renovated from './assets/yard-parking-2.jpg';
+import workshop from './assets/yard-parking-3.jpg';
+import gallery from './assets/yard-parking-4.jpg';
+import estate from './assets/yard-parking-5.jpg';
+const vehiclePhotos = import.meta.glob<string>('./assets/parked-*.webp', {
+  eager: true, import: 'default', query: '?url',
+});
+
+// Each crop includes the ground receiving the vehicle's shadow in this yard.
+export function parkedPhoto(level: number, model?: string): string | undefined {
+  return vehiclePhotos[`./assets/parked-${level}-${model}.webp`];
+}
 
 export const yards = {
   1: { image: inherited, alt: 'Старый деревянный дом и металлический гараж.' },

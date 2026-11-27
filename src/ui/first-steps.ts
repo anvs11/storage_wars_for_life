@@ -81,5 +81,5 @@ export function mountFirstSteps(root: HTMLElement, state: Stage7State, view: Sta
   panel.lastElementChild?.setAttribute('aria-label', 'Скрыть обучение');
   const auction = root.querySelector('.auction-layout');
   if (auction) auction.append(panel);
-  else root.querySelector('.garage__header')?.after(panel);
+  else root.querySelector(view.screen.phase === 'home' ? '.yard-hero' : '.garage__header')?.after(panel);
 }

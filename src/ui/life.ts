@@ -60,35 +60,8 @@ export function mountLife(root: HTMLElement, view: Stage7View, dispatch: Stage7D
 
   if (screen.phase === 'home') {
     const home = element('section', 'garage__panel life-home');
-    home.dataset.homeProjects = '';
     home.tabIndex = -1;
-    const { level, workshopPrice, nextHouse, display, displayCandidate } = life.home;
-    home.append(element('h2', 'garage__heading', ['Старый дом', 'Дом после ремонта', 'Дом с мастерской',
-      'Коттедж с галереей', 'Загородная усадьба'][level - 1]));
-    if (level === 1) {
-      home.append(element('p', 'hub__detail', 'После ремонта дома можно поставить проигрыватель в комнате.'),
-        action('Посмотреть ремонт дома', { type: 'navigate', room: 'auctions' }));
-      home.lastElementChild?.addEventListener('click', () => {
-        const offer = root.querySelector<HTMLElement>('[data-home-offer]');
-        if (offer) {
-          offer.tabIndex = -1;
-          offer.focus();
-        }
-      });
-    } else if (level === 2) {
-      const upgrade = action(`Открыть мастерскую за ${rubles(workshopPrice)}`, { type: 'buyWorkshop' }, true);
-      upgrade.disabled = screen.bank < workshopPrice;
-      home.append(element('p', 'hub__detail', 'В мастерской ремонт находок стоит на 25% меньше.'), upgrade);
-      if (upgrade.disabled) home.append(element('p', 'hub__reason', `Не хватает ${rubles(workshopPrice - screen.bank)}.`));
-    } else home.append(element('p', 'hub__detail', 'Скидка 25% уже учтена в ценах ремонта в гараже.'));
-    if (nextHouse) {
-      const { level, price } = nextHouse;
-      const title = level === 4 ? 'Купить коттедж с галереей' : 'Купить загородную усадьбу';
-      const buy = action(`${title} за ${rubles(price)}`, { type: 'buyHouse', level }, true);
-      buy.disabled = screen.bank < price;
-      home.append(buy);
-      if (buy.disabled) home.append(element('p', 'hub__reason', `Не хватает ${rubles(price - screen.bank)}.`));
-    }
+    const { display, displayCandidate } = life.home;
     if (display) {
       const image = element('img', 'life-home__record-player');
       image.src = recordPlayer;
@@ -97,7 +70,7 @@ export function mountLife(root: HTMLElement, view: Stage7View, dispatch: Stage7D
         action('Вернуть проигрыватель в гараж', { type: 'retrieveTurntable' }));
     } else if (displayCandidate) home.append(action(`Поставить дома: ${displayCandidate}`, { type: 'displayTurntable' }));
     if (life.canOpen && !view.familyDate) home.append(action('Поговорить с соседкой', { type: 'openRelationship' }));
-    root.querySelector('.stage5__nav')?.after(home);
+    if (home.childElementCount) root.querySelector('.yard-hero')?.after(home);
     if (previousFocus) (home.querySelector<HTMLElement>(`[data-life-focus="${CSS.escape(previousFocus)}"]`) ?? home).focus();
   }
 

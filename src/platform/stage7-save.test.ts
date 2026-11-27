@@ -122,7 +122,7 @@ it('сохраняет генератор открытого лота v4 до з
 it('переносит профиль v5 с улучшением, откликом, открытой коробкой и выбранным грузом', () => {
   const storage = memory();
   const garage = setup(storage, 72000, 18, migrateStage5(newStage5(64)));
-  const active = play(storage, garage, { type: 'buyCapacity', target: 'car' }, hub, { type: 'spend', offerId: 'home' },
+  const active = play(storage, garage, { type: 'buyCapacity', target: 'car' }, home, { type: 'buyHouse', level: 2 }, hub,
     { type: 'openRelationship' }, { type: 'meetNeighbor' }, { type: 'returnToHub' },
     { type: 'navigate', room: 'market' }, { type: 'publish', itemId: 'home-lamp', price: 750 }, { type: 'waitForBuyer' });
   const nextMorning = play(storage, active, home, wait, wait, sleep, wake, hub, enter, { type: 'bid' }, { type: 'bid' },
