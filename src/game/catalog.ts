@@ -91,6 +91,8 @@ export interface LotFind extends RevealedFind {
 
 export interface GarageLot<Scene extends string = Stage2AuctionView['sceneId']> {
   readonly sceneId: Scene;
+  readonly screenId?: string;
+  readonly layoutSeed?: number;
   readonly openingBid: number;
   readonly bidIncrement: number;
   readonly visibleFinds: readonly LotFind[];

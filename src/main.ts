@@ -74,11 +74,25 @@ function start(root: HTMLElement): void {
   const houseShowroom = createHouseShowroom(root, dispatch);
   const phone = createPhone(root, dispatch);
 
+  let auctionTimer: number | undefined;
   function show(nextState: Stage7State, message = '', animateVisit = false): void {
     state = nextState;
     notify(message);
     const view = getView(state);
-    mountStage7(root, view, dispatch, animateVisit, async (revision) => {
+    const auctionRef = view.auction && view.screen.phase === 'inspection'
+      ? { lotNumber: view.screen.lotNumber, offerIndex: view.auction.offerIndex } : undefined;
+    const send: Stage7Dispatch = command => dispatch(auctionRef ? { ...command, auctionRef } : command);
+    window.clearTimeout(auctionTimer);
+    if (view.auction && state.round) {
+      const tick = () => {
+        if (state !== nextState) return;
+        if (document.hidden || document.querySelector('dialog[open], .game-menu[open]')) {
+          auctionTimer = window.setTimeout(tick, 500);
+        } else send({ type: 'auctionTick', expectedRevision: view.screen.revision });
+      };
+      auctionTimer = window.setTimeout(tick, 650);
+    }
+    mountStage7(root, view, send, animateVisit, async (revision) => {
       if (watching) return;
       watching = true;
       const before = state;

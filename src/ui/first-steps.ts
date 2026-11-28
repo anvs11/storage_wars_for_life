@@ -48,10 +48,12 @@ function firstTip(state: Stage7State, view: Stage7View): Tip | null {
     if (screen.phase === 'inspection' && !screen.visibleItems.some(find => find.hint) && item) {
       return { title: 'Что видно у двери?', body: 'Нажми на видимую вещь. Лупа подскажет примерную цену именно этой находки.', target: `[data-garage-focus="inspect:${CSS.escape(item.id)}"]` };
     }
-    return { title: 'Реши, сколько готов отдать', body: 'Ведущий называет шаг, соперники отвечают. Если цена выше твоего предела, нажми «Пас».', target: screen.allowedActions.includes('bid') ? '[data-garage-focus="bid"]' : '[data-garage-focus="pass"]' };
+    return { title: 'Реши, сколько готов отдать', body: view.auction
+      ? 'Начни торги и нажми «Ставка», пока цену не принял соперник. «Пропустить цену» оставляет тебя в торгах, «Выйти» завершает участие.'
+      : 'Ведущий называет шаг, соперники отвечают. Если цена выше твоего предела, нажми «Пас».', target: screen.allowedActions.includes('bid') ? '[data-garage-focus="bid"]' : '[data-garage-focus="pass"]' };
   }
   if (screen.phase === 'cargo' && !screen.baggage && screen.lotNumber <= 2) {
-    if (screen.boxes.length && !base.cargo.length) return { title: 'Гараж твой', body: 'Открой коробку или отодвинь ширму. Теперь можно узнать, что было скрыто.', target: '[data-screen-focus^="open:"]' };
+    if (screen.boxes.length && !base.cargo.length) return { title: 'Гараж твой', body: 'Нажми на закрытую коробку, чтобы увидеть находку внутри.', target: '[data-screen-focus^="open:"]' };
     if (!base.cargo.length) return { title: 'Возьми вещь в руки', body: 'Нажми на предмет, сравни оценку и состояние. Выбери, что повезёшь домой.', target: '[data-screen-focus^="pick:"]' };
     return { title: 'Отвези находки в гараж', body: 'После разбора вещи появятся дома. Оттуда их можно выставить на доске.', target: '.stage5__confirm summary, [data-screen-focus="finish"]' };
   }

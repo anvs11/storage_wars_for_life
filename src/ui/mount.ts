@@ -4,7 +4,7 @@ import type { CalendarView } from '../game/stage7-calendar';
 import { auctionCast } from './auction-bidders';
 import { mountBaggage } from './baggage';
 import { actionButton, addFact, bankFor, rubles, element } from './dom';
-import { placeProp, sceneSprite, stackedBoxes } from './scene-sprites';
+import { placeLotStage, placeProp, sceneSprite, screenDecor, stackedBoxes } from './scene-sprites';
 import { garageScenes } from './garage-scenes';
 import { mountHub } from './hub';
 import { inventoryFor, receiptFacts, saleFacts } from './inventory';
@@ -84,6 +84,22 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
   const items = element('ul', 'garage__items');
   const hints = element('div', 'garage__hints');
   const inspected = new Map<string, HTMLElement>();
+  function inspectSheet(key: string): boolean {
+    const hint = inspected.get(key);
+    if (!hint || !matchMedia('(max-width: 959px)').matches) return false;
+    const sheet = element('dialog', 'auction-sheet');
+    sheet.setAttribute('aria-label', 'Осмотр предмета');
+    const detail = hint.cloneNode(true) as HTMLElement;
+    detail.hidden = false;
+    sheet.append(detail, actionButton('К торгам', 'garage__button', () => sheet.close()));
+    root.append(sheet);
+    sheet.addEventListener('close', () => {
+      sheet.remove();
+      buttons.get(key)?.focus({ preventScroll: true });
+    }, { once: true });
+    sheet.showModal();
+    return true;
+  }
   const auctionOpen = view.phase === 'inspection' || view.phase === 'bidding';
   if (auctionOpen) {
     layout.classList.add('auction-layout');
@@ -113,7 +129,8 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
       } else if (item.hint) {
         const review = actionButton(item.name, 'garage__button garage__button--inspect', () => {
           for (const [id, hint] of inspected) hint.hidden = id !== key;
-          inspected.get(key)?.focus({ preventScroll: true });
+          hints.querySelector('.garage__prompt')?.remove();
+          if (!inspectSheet(key)) inspected.get(key)?.focus({ preventScroll: true });
           const estimate = item.hint?.estimatedSalePrice;
           if (estimate) flashEstimate(row, estimate);
         });
@@ -122,7 +139,21 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
         buttons.set(key, review);
         row.append(review);
       } else {
-        row.textContent = item.name;
+        const sealed = actionButton(item.name, 'garage__button garage__button--inspect', () => {
+          for (const [id, hint] of inspected) hint.hidden = id !== key;
+          hints.querySelector('.garage__prompt')?.remove();
+          if (!inspectSheet(key)) inspected.get(key)?.focus({ preventScroll: true });
+        });
+        sealed.dataset.garageFocus = key;
+        sealed.setAttribute('aria-label', `Осмотреть: ${item.name}`);
+        const note = element('p', 'garage__hint', 'Содержимое можно увидеть после покупки.');
+        note.hidden = true;
+        note.tabIndex = -1;
+        note.prepend(element('strong', '', item.name + ' '));
+        inspected.set(key, note);
+        buttons.set(key, sealed);
+        hints.append(note);
+        row.append(sealed);
       }
       const target = row.querySelector('button') ?? row;
       const container = !item.canInspect && !item.hint;
@@ -138,6 +169,7 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
       }
       if (!container) target.append(element('span', 'door-loupe'));
       placeProp(row, item.name, container ? boxIndex++ : findIndex++, container);
+      row.dataset.instanceId = item.id;
       items.append(row);
 
       if (item.hint) {
@@ -146,7 +178,7 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
         hint.dataset.garageFocus = key;
         hint.tabIndex = -1;
         hint.append(element('strong', '', item.name));
-        if (view.sceneId === 'tutorial' && item.name === 'Велосипед') hint.append(' На раме видны потёртости.');
+        hint.append(' ' + item.hint.text);
         const estimate = item.hint.estimatedSalePrice;
         if (estimate) {
           if (focusKey === key && previousFocus?.getAttribute('data-inspection-pending') === 'true') flashEstimate(row, estimate);
@@ -156,12 +188,14 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
         inspected.set(key, hint);
       }
     }
-    if (!hints.childElementCount && buttons.size > 0) {
+    if (!currentHint && buttons.size > 0) {
       hints.append(element('p', 'garage__prompt', 'Выберите предмет, чтобы осмотреть его.'));
     }
   }
   const stage = element('div', 'door-picture');
+  placeLotStage(stage, view.layoutSeed);
   stage.append(photo);
+  if (view.screenId) stage.append(screenDecor(view.screenId));
   if (auctionOpen) stage.append(items);
   scene.append(stage);
   if (auctionOpen) scene.append(hints);
@@ -212,6 +246,8 @@ function mountAuction(root: HTMLElement, view: Stage3AuctionView, dispatch: Stag
   layout.append(scene, panel);
   screen.append(header, layout);
   root.replaceChildren(screen);
+
+  if (focusKey && previousFocus?.getAttribute('data-inspection-pending') === 'true' && inspectSheet(focusKey)) return;
 
   if (cast && playRound) {
     const bid = buttons.get('bid');

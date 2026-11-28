@@ -6,12 +6,12 @@ import type { Stage4State } from './stage4-engine';
 import { applyCommand as applyBase, getView as baseView, newGame as newBase } from './stage4-engine';
 import { migrateLot, migrateReceipt, migratedEconomy, rubleEconomy, toRubles } from './stage5-economy';
 import type { GarageItemView, ListingView, MarketOffer, Room, Stage5Command, Stage5View, SaleView, SellerReview } from './stage5-contract';
-import { firstAuctionEconomy, stage6Economy } from './stage6-auctions';
+import { stage12Economy, firstAuctionEconomy, stage6Economy } from './stage6-auctions';
 import { marketOffers, newMarketOffer, reviewFor, updateMarketOffer } from './market-dialogue';
 import { prologueFrames } from './stage5-contract';
 import { describeVehicle, hasBonusAuction, requiresLongBed, transportOffers } from './transport';
 import type { TransportState } from './transport';
-import { houseLevel, houses } from './houses';
+import { houseCapacity, houseLevel, houses } from './houses';
 import { offers } from './progression';
 
 export interface OwnedItem extends GarageItemView {
@@ -33,7 +33,8 @@ export interface Stage5State {
   readonly opening: typeof prologueFrames[number] | null;
   readonly room: Room | null;
   readonly legacyLot: boolean;
-  readonly lotEdition: 5 | 6 | 7;
+  readonly lotEdition: 5 | 6 | 7 | 12;
+  readonly legacyExcess?: number;
   readonly capacityUpgrades: readonly ('garage' | 'car' | 'shelves')[];
   readonly transport?: TransportState;
   readonly workshop?: true;
@@ -147,7 +148,7 @@ export function vehicleFor(state: TransportProfile) {
 }
 export const economyFor = (state: Pick<Stage5State, 'legacyLot' | 'lotEdition'>) =>
   state.legacyLot ? migratedEconomy : state.lotEdition === 5 ? rubleEconomy
-    : state.lotEdition === 7 ? firstAuctionEconomy : stage6Economy;
+    : state.lotEdition === 12 ? stage12Economy : state.lotEdition === 7 ? firstAuctionEconomy : stage6Economy;
 const occupied = (items: readonly GarageItemView[]): number => items.reduce((sum, item) => sum + item.size, 0);
 
 export function updateStage5(state: Stage5State, patch: Partial<Omit<Stage5State, 'base'>>, bank = state.base.game.bank, status = state.base.game.status): Stage5State {
@@ -187,8 +188,22 @@ function itemView(item: OwnedItem, bank: number, workshop = false): GarageItemVi
   return repair ? { ...view, repair } : view;
 }
 
-export function storageUsage(items: readonly GarageItemView[], jewelry: boolean): number {
-  return occupied(items.filter(({ position }) => (position === 'jewelryBox') === jewelry));
+export const outdoorFind = (item: Pick<GarageItemView, 'name'>) => item.name === 'Велосипед';
+export function houseLimit(state: Stage5State) {
+  const game = state.base.game;
+  if (state.legacyExcess === undefined) return capacityLimit(state.capacityUpgrades, 'garage');
+  return houseCapacity[houseLevel(state.house, state.workshop, 'assets' in game && game.assets.includes('home'))];
+}
+
+export function projectedExcess(state: Stage5State) {
+  const game = state.base.game;
+  const selected = game.phase === 'reveal' || game.phase === 'baggageInventory'
+    ? openCargoItems(game).filter(item => state.cargo.includes(item.id)) : [];
+  return Math.max(0, storageUsage([...state.items, ...selected], false, true) - houseLimit(state));
+}
+
+export function storageUsage(items: readonly GarageItemView[], jewelry: boolean, outdoor = false): number {
+  return occupied(items.filter(item => (item.position === 'jewelryBox') === jewelry && !(outdoor && outdoorFind(item))));
 }
 
 type CargoGame = Extract<Stage4State['game'], { phase: 'reveal' | 'baggageInventory' }>;
@@ -236,11 +251,11 @@ function cargoFor(state: Stage5State, game: CargoGame) {
   const revenue = [...contents.visibleFinds, ...contents.boxes.flatMap(({ contents: finds }) => finds)]
     .filter(({ id }) => game.soldItemIds.includes(id)).reduce((sum, item) => sum + item.salePrice, 0);
   const reserved = transportLoad(state, game, selected);
-  const used = storageUsage([...state.items, ...selected], false);
+  const used = storageUsage([...state.items, ...selected], false, state.legacyExcess !== undefined);
   const jewelry = storageUsage([...state.items, ...selected], true);
   const transport = game.phase === 'reveal';
   const vehicleLimit = vehicleFor(state).capacity;
-  const roomLimit = capacityLimit(state.capacityUpgrades, 'garage');
+  const roomLimit = houseLimit(state);
   return {
     boxes, items, revenue, reserved, used, jewelry, transport, vehicleLimit, roomLimit,
     blocked(item: GarageItemView): string | null {
@@ -248,6 +263,7 @@ function cargoFor(state: Stage5State, game: CargoGame) {
       const reason = transport ? transportBlock(state, game, item, reserved) : null;
       if (reason) return reason;
       if (item.position === 'jewelryBox') return jewelry + item.size > jewelryLimit ? 'В шкатулке нет места.' : null;
+      if (state.legacyExcess !== undefined && outdoorFind(item)) return null;
       return used + item.size > roomLimit ? 'В гараже нет места.' : null;
     },
   };
@@ -301,6 +317,8 @@ export function finishCargo(
   const selected = cargo.items.filter(({ id }) => state.cargo.includes(id));
   const pickedForBox = cargo.items.filter(({ id }) => boxSelection.includes(id) && !state.cargo.includes(id));
   if (pickedForBox.length !== boxSelection.length) return null;
+  if (cargo.used > cargo.roomLimit + (state.legacyExcess ?? 0) || cargo.jewelry > jewelryLimit ||
+      (cargo.transport && (cargo.reserved > cargo.vehicleLimit || selected.some(item => transportBlock(state, game, item, 0))))) return null;
   const remaining = cargo.boxes.length > 0 || selected.length + pickedForBox.length !== cargo.items.length;
   if (remaining && !leaveRemaining) return null;
   const baggageId = game.phase === 'baggageInventory' ? `baggage-${game.revision}` : undefined;
@@ -391,6 +409,7 @@ function handleRoom(state: Stage5State, command: Stage5Command, boxed: readonly 
     case 'navigate':
       return command.room === state.room ? state : updateStage5(state, { room: command.room === 'auctions' ? null : command.room });
     case 'buyCapacity': {
+      if (state.legacyExcess !== undefined && command.target !== 'car') return state;
       if (command.target === 'car' && state.transport) return state;
       if (command.target === 'shelves' && !state.capacityUpgrades.includes('garage')) return state;
       const upgrade = upgrades[command.target];
@@ -543,7 +562,7 @@ export function applyCommand(state: Stage5State, command: Stage5Command, boxed: 
       return state;
   }
   const edition = command.type === 'enterAuction'
-    ? game.phase === 'hub' && game.lotNumber === 0 && (game.bank < 3000 || state.transport?.model === 'scooter') && command.tier === 'ordinary' ? 7 : 6
+    ? state.legacyExcess !== undefined ? 12 : game.phase === 'hub' && game.lotNumber === 0 && (game.bank < 3000 || state.transport?.model === 'scooter') && command.tier === 'ordinary' ? 7 : 6
     : state.lotEdition;
   const base = applyBase(state.base, command, command.type === 'enterAuction'
     ? economyFor({ legacyLot: false, lotEdition: edition }) : economyFor(state));
@@ -569,7 +588,7 @@ export function getView(state: Stage5State): Stage5View {
       })),
       unread: state.listings.flatMap(marketOffers).filter(({ unread, closed }) => unread && !closed).length,
       reviews: state.reviews ?? [],
-      garage: { used: storageUsage(state.items, false), limit: capacityLimit(state.capacityUpgrades, 'garage') },
+      garage: { used: storageUsage(state.items, false, state.legacyExcess !== undefined), limit: houseLimit(state) },
       vehicle: vehicleFor(state),
       ...(state.room === 'car' ? { transportOffers: transportOffers(transportFor(state)).map(({ next, ...offer }) => ({
         ...offer, capacity: describeVehicle(next).capacity, auctions: hasBonusAuction(next) ? 4 as const : 3 as const,
@@ -579,7 +598,7 @@ export function getView(state: Stage5State): Stage5View {
       ...(state.workshop ? { workshop: true } as const : {}),
       ...(state.house ? { house: state.house } : {}),
       jewelry: { used: storageUsage(state.items, true), limit: jewelryLimit },
-      upgrades: (['garage', 'car', 'shelves'] as const).filter((target) => !state.capacityUpgrades.includes(target) &&
+      upgrades: (['garage', 'car', 'shelves'] as const).filter((target) => !state.capacityUpgrades.includes(target) && (state.legacyExcess === undefined || target === 'car') &&
         (target !== 'car' || !state.transport) && (target !== 'shelves' || state.capacityUpgrades.includes('garage')))
         .map((target) => ({ target, ...upgrades[target], available: bank >= upgrades[target].price })),
       lastSale: state.lastSale,
@@ -590,7 +609,7 @@ export function getView(state: Stage5State): Stage5View {
   if (game.phase === 'reveal' || game.phase === 'baggageInventory') {
     const cargo = cargoFor(state, game);
     return {
-      phase: 'cargo', bank, revision, sceneId: game.phase === 'reveal' ? game.lot.sceneId : 'household', lotNumber: game.lotNumber,
+      phase: 'cargo', bank, revision, ...(game.phase === 'reveal' && game.lot.layoutSeed !== undefined ? { layoutSeed: game.lot.layoutSeed } : {}), ...(game.phase === 'reveal' && game.lot.screenId ? { screenId: game.lot.screenId } : {}), sceneId: game.phase === 'reveal' ? game.lot.sceneId : 'household', lotNumber: game.lotNumber,
       ...(game.phase === 'baggageInventory' ? {
         baggage: true,
         floor: game.assets.includes('home') ? 'parquet' : game.baggageSeed % 2 ? 'stone' : 'boards',

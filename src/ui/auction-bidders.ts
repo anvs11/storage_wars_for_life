@@ -46,13 +46,13 @@ export function auctionCast(view: Extract<Stage3AuctionView, { phase: 'inspectio
     const { name, amount, state } = opponent;
     const { row, speech } = bidderRow(name, portraits[name]);
     row.dataset.bidderState = state;
-    speech.textContent = amount === null ? (state === 'out' ? 'Пас' : '—') : rubles(amount);
+    speech.textContent = amount === null ? (state === 'out' ? 'Пас' : '') : rubles(amount);
     list.append(row);
     return { opponent, row, speech };
   });
   const player = bidderRow('Вы', playerPortrait);
   player.row.classList.add('auction-bidder--player');
-  player.speech.textContent = view.phase === 'bidding' ? rubles(view.lastPlayerBid) : '—';
+  player.speech.textContent = view.phase === 'bidding' ? rubles(view.lastPlayerBid) : '';
   list.append(player.row);
 
   const prompt = element('div', 'auctioneer');

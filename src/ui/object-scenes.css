@@ -214,7 +214,7 @@
   pointer-events: none;
 }
 .door-scene .garage__item, .cargo-scene .cargo-target {
-  position: absolute; left: var(--x); bottom: var(--y); width: var(--w);
+  position: absolute; left:calc(var(--x) + var(--lot-shift-x,0%)); bottom:calc(var(--y) + var(--lot-shift-y,0%)); width:var(--w);
   min-width: 44px; min-height: 44px; z-index: var(--depth, 1);
   border: 0; pointer-events: auto;
 }
@@ -361,7 +361,7 @@
   to { opacity: 0; transform: translate(-50%, -12px); }
 }
 @media (min-width: 960px) {
-  .garage__layout.auction-layout { grid-template-columns: minmax(134px, 164px) minmax(0, 1fr) minmax(225px, 280px); gap: clamp(10px, 1.6vw, 24px); }
+  .garage__layout.auction-layout { gap:.5rem; }
 }
 @media (max-width: 959px) {
   .garage__layout.auction-layout { grid-template-columns: minmax(0, 1fr); gap: 7px; }
@@ -415,3 +415,33 @@
   .auction-call__gavel { animation: none; }
   .auction-call__sold { animation-delay: 0s; }
 }
+.lot-screen-decor { position:absolute; right:9%; bottom:15%; width:27%; pointer-events:none; filter:drop-shadow(4px 6px 4px #20150988); }
+.auction-bidder__speech:empty { visibility:hidden; }
+.door-scene button:focus-visible:has(img) { outline:0; }
+.door-scene button:focus-visible img { filter:drop-shadow(1px 1px 2px white) drop-shadow(-1px -1px 2px #ffc768); }
+.auction-layout .auctioneer p { font-variant-numeric:tabular-nums; }
+@media(min-width:960px){
+  .garage__layout.auction-layout { display:grid; grid-template-columns:minmax(0,1fr); position:relative; }
+  .auction-layout .auction-bidders { position:absolute; top:10px; left:10px; z-index:8; padding:.45rem; max-width:160px; background:#14221edb; border-radius:12px; pointer-events:none; }
+  .auction-layout .auction-bidders h2 { display:none; }
+  .auction-layout .door-picture { width:min(100%, 102svh); margin-inline:auto; }
+  .auction-layout .door-picture .garage__photo { width:100%; height:auto; object-fit:contain; }
+  .auction-layout > .garage__panel { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
+  .auction-layout > .garage__panel > h2 { display:none; }
+  .auction-layout .garage__controls { margin-left:auto; display:flex; }
+}
+@media(max-width:959px){
+  .auction-layout > .garage__panel > h2 { display:none; }
+  .auction-layout .garage__controls button { padding-inline:.28rem; font-size:.94rem; }
+  .auction-layout > .garage__panel { position:sticky; bottom:0; z-index:9; background:#16251ff5; padding-bottom:max(8px,env(safe-area-inset-bottom)); }
+  .auction-layout .garage__controls { display:flex; flex-wrap:wrap; }
+}
+.repair-station[open] { background:linear-gradient(#14201be8,#14201bed),var(--bench) center/cover; padding:.7rem; }
+.garage-outdoor { width:100%; }
+.garage-outdoor .shelf-scene { margin-top:.5rem; }
+.garage-outdoor summary { min-height:44px; cursor:pointer; }
+
+.auction-sheet { width:min(28rem,94vw); border:1px solid #c4a36f; border-radius:16px; padding:1.2rem; background:#192723; color:#fff3dd; }
+.auction-sheet::backdrop { background:#07100fcc; }
+.auction-sheet .garage__hint { display:grid; gap:.5rem; }
+.auction-sheet button { min-height:44px; }

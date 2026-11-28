@@ -6,6 +6,8 @@ export const houses = {
   5: { name: 'Белокаменная усадьба', price: 2800000, detail: 'Загородная усадьба с гаражом на три секции и мастерской.' },
 } as const;
 
+export const houseCapacity = { 1: 8, 2: 12, 3: 16, 4: 24, 5: 32 } as const;
+
 export const houseLevels = [1, 2, 3, 4, 5] as const;
 export type HouseLevel = typeof houseLevels[number];
 

@@ -1,3 +1,4 @@
+import { applyCommand } from '../game/stage7-engine';
 import { expect, it } from 'vitest';
 import { applyCommand as actStage2, newGame as newStage2 } from '../game/stage2-engine';
 import { migrateStage2 } from '../game/stage3-engine';
@@ -39,10 +40,12 @@ function play(storage: SaveStorage, initial: Stage7State, ...actions: Action[]):
     const result = applySavedCommand(storage, state, commandFor(state, action));
     expect(result.kind, action.type).toBe('saved');
     state = loadCurrent(storage);
-    expect(state).toEqual(result.state);
+    expect(state).toEqual({ ...result.state, base: { legacyExcess: 0, ...result.state.base } });
   }
   return state;
 }
+
+function legacyBase({ legacyExcess: _excess, ...base }: Stage7State['base']) { return base; }
 
 function setup(storage: SaveStorage, bank = 0, status = 0, initial = newGame(64)): Stage7State {
   const starter = play(storage, initial, { type: 'skipStory' });
@@ -100,14 +103,14 @@ it('читает v1–v3 и переводит деньги ровно один 
       calendar: { day: 1, period: 'morning' }, familyDate: null, paidVisit: null, flea: { items: [] } });
     const homeAgain = play(storage, migrated, { type: 'pass' }, { type: 'nextLot' });
     expect(getView(homeAgain)).toMatchObject({ screen: { phase: 'home', bank: 10000 }, calendar: { period: 'afternoon' } });
-    expect(JSON.parse(storage.getItem(SAVE_KEY)!).version, `v${index + 1}`).toBe(8);
+    expect(JSON.parse(storage.getItem(SAVE_KEY)!).version, `v${index + 1}`).toBe(9);
   }
 });
 
 it('сохраняет генератор открытого лота v4 до завершения выезда', () => {
   const storage = memory();
   const active = play(storage, setup(storage, 9000), hub, enter, { type: 'pass' }, { type: 'nextLot' }, hub);
-  const { capacityUpgrades, baggageArrived, lotEdition: _edition, transport: _transport, ...legacy } = active.base;
+  const { legacyExcess: _excess, capacityUpgrades, baggageArrived, lotEdition: _edition, transport: _transport, ...legacy } = active.base;
   const game = actStage4(legacy.base, { type: 'enterAuction', tier: 'ordinary', expectedRevision: getView(active).screen.revision }, rubleEconomy);
   storage.setItem(SAVE_KEY, JSON.stringify({ version: 4, state: { ...legacy, base: game } }));
   const migrated = loadCurrent(storage);
@@ -115,7 +118,7 @@ it('сохраняет генератор открытого лота v4 до з
   expect(migrated.base.lotEdition).toBe(5);
   expect(migrated.calendar).toEqual({ day: 1, period: 'morning' });
   const next = play(storage, migrated, { type: 'pass' }, { type: 'nextLot' }, hub, enter);
-  expect(next.base.lotEdition).toBe(6);
+  expect(next.base.lotEdition).toBe(12);
   expect(next.calendar.period).toBe('afternoon');
 });
 
@@ -125,10 +128,12 @@ it('переносит профиль v5 с улучшением, отклико
   const active = play(storage, garage, { type: 'buyCapacity', target: 'car' }, home, { type: 'buyHouse', level: 2 }, hub,
     { type: 'openRelationship' }, { type: 'meetNeighbor' }, { type: 'returnToHub' },
     { type: 'navigate', room: 'market' }, { type: 'publish', itemId: 'home-lamp', price: 750 }, { type: 'waitForBuyer' });
-  const nextMorning = play(storage, active, home, wait, wait, sleep, wake, hub, enter, { type: 'bid' }, { type: 'bid' },
+  const oldMorning = play(storage, active, home, wait, wait, sleep, wake, hub);
+  const entered = applyCommand({ ...oldMorning, base: legacyBase(oldMorning.base) }, commandFor(oldMorning, enter));
+  const nextMorning = play(storage, entered, { type: 'bid' }, { type: 'bid' },
     { type: 'openBox', boxId: 'box' }, { type: 'toggleCargo', itemId: 'tool' });
   expect(nextMorning.base.listings[0]?.offer?.price).toBe(750);
-  expect(saveV5(storage, nextMorning.base)).toEqual({ ok: true });
+  expect(saveV5(storage, legacyBase(nextMorning.base))).toEqual({ ok: true });
   const migrated = loadCurrent(storage);
   expect(migrated.base).toEqual(nextMorning.base);
   expect(getView(migrated)).toMatchObject({ screen: { phase: 'cargo', bank: 28000, boxes: [], car: { used: 1, limit: 8 } },
@@ -147,7 +152,7 @@ it('продолжает переговоры из inbox v5 и проводит 
   const listing = inbox.base.listings[0]!;
   const offer = listing.offer!;
   expect(offer.ceiling).toBeDefined();
-  expect(saveV5(storage, inbox.base)).toEqual({ ok: true });
+  expect(saveV5(storage, legacyBase(inbox.base))).toEqual({ ok: true });
   const loaded = loadCurrent(storage);
   const view = getView(loaded);
   expect(view.screen.phase).toBe('inbox');
@@ -172,7 +177,7 @@ it('продолжает переговоры из inbox v5 и проводит 
 it('восстанавливает оплаченный чемодан v5 и разбирает его без расхода выезда', () => {
   const storage = memory();
   const bag = play(storage, setup(storage, 3000), hub, { type: 'callAirport' }, { type: 'buyBaggage' });
-  expect(saveV5(storage, bag.base)).toEqual({ ok: true });
+  expect(saveV5(storage, legacyBase(bag.base))).toEqual({ ok: true });
   const restored = loadCurrent(storage);
   expect(getView(restored)).toMatchObject({ screen: { phase: 'baggageArrival', bank: 600 }, calendar: { period: 'morning' } });
   const garage = play(storage, restored, { type: 'receiveBaggage' }, { type: 'openBox', boxId: 'suitcase' },
@@ -227,7 +232,7 @@ it('отклоняет сохранение с невозможным време
   }
   const { bankBefore, ...old } = receipt;
   const legacyReceipt = { ...old, sold: old.sold.map(({ size, ...item }) => item) };
-  storage.setItem(SAVE_KEY, JSON.stringify({ version: 6, state: { ...sold, flea: { ...sold.flea, visit: legacyReceipt } } }));
+  storage.setItem(SAVE_KEY, JSON.stringify({ version: 6, state: { ...sold, base: legacyBase(sold.base), flea: { ...sold.flea, visit: legacyReceipt } } }));
   expect(load(storage)).toMatchObject({ kind: 'loaded', state: { flea: { visit: legacyReceipt } } });
 });
 

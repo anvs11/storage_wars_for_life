@@ -26,6 +26,17 @@ function play(state: Stage7State, ...actions: Action[]): Stage7State {
   return state;
 }
 
+function buy(state: Stage7State): Stage7State {
+  let current = play(state, enter);
+  for (let turn = 0; turn < 1000 && current.base.base.game.phase !== 'reveal'; turn += 1) {
+    current = play(current, { type: getView(current).auction?.leader === 'player' ? 'auctionTick' : 'bid' });
+  }
+  expect(current.base.base.game.phase).toBe('reveal');
+  return current;
+}
+
+function legacyBase({ legacyExcess: _version9, ...base }: Stage7State['base']) { return base; }
+
 function memory() {
   const entries = new Map<string, string>();
   return {
@@ -39,7 +50,7 @@ function reload(state: Stage7State): Stage7State {
   expect(save(storage, state)).toEqual({ ok: true });
   const restored = load(storage);
   if (restored.kind !== 'loaded') throw new Error(`Загрузка снимка: ${restored.kind}`);
-  expect(restored.state).toEqual(state);
+  expect(restored.state).toEqual({ ...state, base: { legacyExcess: 0, ...state.base } });
   return restored.state;
 }
 
@@ -71,7 +82,7 @@ it('мигрирует показатели v7, сохраняет отсчёт 
   storage.setItem(SAVE_KEY, JSON.stringify({ version: 7, state: original }));
   const decoded = load(storage);
   if (decoded.kind !== 'loaded') throw new Error(decoded.kind);
-  expect(decoded.state.base).toEqual(original.base);
+  expect(decoded.state.base).toEqual({ ...original.base, legacyExcess: 0 });
   expect(decoded.state.phone?.scores).toEqual({ trust: 44, interest: 58, reliability: 72, memories: 86 });
   expect(decoded.state.phone?.consent).toBe('friends');
   const active = play(decoded.state, auctions, neighbor, lifeChoice('talk'), leaveNeighbor);
@@ -344,21 +355,20 @@ it('хранит проигрыватель дома и применяет це�
   expect(getView(repaired).life.home.displayCandidate).toBe('Проигрыватель');
 });
 
-it('меняет двор при переезде, а вместимость гаража при покупке стеллажей', () => {
+it('меняет двор и вместимость при переезде и отклоняет старую покупку стеллажей', () => {
   const start = lifeProfile();
   const rich = { ...start, base: { ...start.base, base: { ...start.base.base, game: { ...start.base.base.game, bank: 4000000 } } } } as Stage7State;
   const estate = reload(play(rich, home, { type: 'buyHouse', level: 5 }, { type: 'displayTurntable' }));
   expect(estate.base.base.game.bank).toBe(1200000);
-  expect(getView(estate)).toMatchObject({ screen: { house: 5, workshop: true, garage: { limit: 8 } },
+  expect(getView(estate)).toMatchObject({ screen: { house: 5, workshop: true, garage: { limit: 32 } },
     life: { home: { level: 5, display: 'Проигрыватель' } } });
   expect(send(estate, { type: 'buyHouse', level: 5 })).toBe(estate);
   expect(send(estate, { type: 'buyHouse', level: 4 })).toBe(estate);
   expect(send(estate, { type: 'buyCapacity', target: 'garage' })).toBe(estate);
   const garage = play(estate, { type: 'navigate', room: 'garage' });
   expect(send(garage, { type: 'buyCapacity', target: 'shelves' })).toBe(garage);
-  const racks = reload(play(garage, { type: 'buyCapacity', target: 'garage' }, { type: 'buyCapacity', target: 'shelves' }));
-  expect(getView(racks).screen).toMatchObject({ garage: { limit: 24 } });
-  expect(send(racks, { type: 'buyCapacity', target: 'shelves' })).toBe(racks);
+  expect(send(garage, { type: 'buyCapacity', target: 'garage' })).toBe(garage);
+  expect(getView(reload(garage)).screen).toMatchObject({ garage: { limit: 32 } });
 });
 
 it('покупает дом только со двора за указанную цену и начисляет очки один раз', () => {
@@ -411,7 +421,7 @@ it('везёт велосипед отдельно от сумки скутер�
   expect(getView(inspection).auctionTransport).toMatchObject({ tutorialDelivery: true, garageFree: 5 });
   const selected = reload(play(inspection, { type: 'bid' }, { type: 'openBox', boxId: 'box' },
     { type: 'toggleCargo', itemId: 'bicycle' }, { type: 'toggleCargo', itemId: 'tool' }));
-  expect(getView(selected).screen).toMatchObject({ phase: 'cargo', car: { used: 1, limit: 2 }, garage: { used: 8, limit: 8 },
+  expect(getView(selected).screen).toMatchObject({ phase: 'cargo', car: { used: 1, limit: 2 }, garage: { used: 4, limit: 8 },
     items: [{ id: 'bicycle', selected: true, tutorialDelivery: true }, { id: 'tool', selected: true }] });
   const delivered = reload(play(selected, { type: 'finishCargo', leaveRemaining: false }));
   expect(delivered.base.items.map(item => item.id)).toContain('owned-1-bicycle');
@@ -457,14 +467,6 @@ it('покупает машины по порядку и открывает од
 });
 
 it('покупает два гаража за день и разбирает их после перезагрузки без повторного расхода выезда', () => {
-  function buy(state: Stage7State): Stage7State {
-    let current = play(state, enter);
-    for (let turn = 0; turn < 20 && current.base.base.game.phase !== 'reveal'; turn += 1) {
-      current = play(current, { type: 'bid' });
-    }
-    expect(current.base.base.game.phase).toBe('reveal');
-    return current;
-  }
   let state = play(funded(50000), auctions);
   state = reload(play(buy(state), { type: 'parkLot' }));
   expect(getView(state).parkedLots.map(lot => lot.lotNumber)).toEqual([1]);
@@ -604,12 +606,12 @@ it('подтверждает время вместе с оплатой и ост
     storage.setItem(key, value);
   } };
   expect(applySavedCommand(locked, initial, command)).toMatchObject({ kind: 'failed', state: initial });
-  expect(load(storage)).toEqual({ kind: 'loaded', state: initial });
+  expect(load(storage)).toEqual({ kind: 'loaded', state: { ...initial, base: { legacyExcess: 0, ...initial.base } } });
   const advanced = applySavedCommand(storage, initial, command);
   expect(advanced.kind).toBe('saved');
   expect(getView(advanced.state)).toMatchObject({ screen: { bank: 400, status: 22 }, calendar: { period: 'afternoon' },
     paidVisit: { open: true, record: { venue: 'restaurant', together: false, day: 1, outing: 'morning', spent: 2600, statusGain: 4 } } });
-  expect(load(storage)).toEqual({ kind: 'loaded', state: advanced.state });
+  expect(load(storage)).toEqual({ kind: 'loaded', state: { ...advanced.state, base: { legacyExcess: 0, ...advanced.state.base } } });
   expect(applySavedCommand(storage, advanced.state, command).kind).toBe('ignored');
   const poor = play(funded(2599, 18), auctions);
   expect(send(poor, command)).toBe(poor);
@@ -647,7 +649,7 @@ it('читает снимок v6 с барахолкой и восстанавл
   const state = play(funded(3000, 18), auctions);
   const { paidVisit: _missing, ...old } = state;
   storage.setItem(SAVE_KEY, JSON.stringify({ version: 6, state: old }));
-  expect(load(storage)).toEqual({ kind: 'loaded', state });
+  expect(load(storage)).toEqual({ kind: 'loaded', state: { ...state, base: { legacyExcess: 0, ...state.base } } });
   const visited = play(state, { type: 'spend', offerId: 'restaurant' });
   expect(save(storage, visited)).toEqual({ ok: true });
   const photo = visited.paidVisit!;
@@ -676,12 +678,12 @@ it('сохраняет открытую фотографию v6 вечером �
 it('переносит незавершённые торги v5 в утро и восстанавливает резерв при испорченном календаре', () => {
   const bidding = reload(play(funded(3350), auctions, enter, { type: 'bid' }));
   const storage = memory();
-  expect(saveStage5(storage, bidding.base)).toEqual({ ok: true });
-  const migrated = migrateStage5(bidding.base);
+  expect(saveStage5(storage, legacyBase(bidding.base))).toEqual({ ok: true });
+  const migrated = { ...migrateStage5(bidding.base), base: { ...bidding.base, legacyExcess: 0 } };
   expect(load(storage)).toEqual({ kind: 'loaded', state: migrated });
   const expectedRevision = revision(migrated);
   expect(applySavedCommand(storage, migrated, { type: 'pass', expectedRevision }).kind).toBe('saved');
-  expect(JSON.parse(storage.getItem(SAVE_KEY)!).version).toBe(8);
+  expect(JSON.parse(storage.getItem(SAVE_KEY)!).version).toBe(9);
   expect(JSON.parse(storage.getItem(BACKUP_KEY)!).version).toBe(5);
   storage.setItem(SAVE_KEY, JSON.stringify({ version: 6, state: { ...bidding, calendar: { day: 1, period: 'evening' } } }));
   expect(load(storage)).toMatchObject({ kind: 'recovered', state: migrated });
@@ -820,7 +822,7 @@ it('продаёт две вещи из трёх на seed 64 и сохраня�
   const returned = play(sold, closeFlea);
   expect(send(returned, openFlea)).toBe(returned);
   const afterMarket = play(returned, auctions, enter);
-  const withoutMarket = play(saturday, wait, auctions, enter);
+  const withoutMarket = play(reload(saturday), wait, auctions, enter);
   const playedLot = afterMarket.base.base.game;
   const baselineLot = withoutMarket.base.base.game;
   if (playedLot.phase !== 'inspection' || baselineLot.phase !== 'inspection') throw new Error('Ожидается дневной осмотр');
@@ -852,7 +854,7 @@ it('соблюдает объём коробки и гаража и сохран
   const extra = Array.from({ length: 5 }, (_, index) => ({ ...packed.base.items[0]!, id: `extra-${index}` }));
   const full = reload({ ...packed, base: { ...packed.base, items: [...packed.base.items, ...extra] } });
   const unpack = { type: 'unpackFlea', itemId: bike.id } as const;
-  expect(send(full, unpack)).toBe(full);
+  expect(getView(play(full, unpack)).screen).toMatchObject({ garage: { used: 8 } });
   const unpacked = reload(play(packed, unpack));
   expect(unpacked.base.items.at(-1)).toEqual(bike);
   expect(unpacked.flea.items).toHaveLength(0);
@@ -887,7 +889,7 @@ it('открывает отдельный экран Жигулей и сохр�
   expect(getView(purchased)).toMatchObject({ screen: { phase: 'car', bank: 6000 },
     vehicle: { model: 'van', capacity: 8 } });
   expect(send(purchased, replace)).toBe(purchased);
-  const loaded = play(purchased, auctions, enter, { type: 'bid' }, { type: 'bid' });
+  const loaded = buy(play(purchased, auctions));
   expect(getView(loaded).screen).toMatchObject({ phase: 'cargo', car: { limit: 8 } });
 });
 
@@ -952,7 +954,7 @@ it('читает v6 с одним календарём и отклоняет п�
   const current = reachMorning(starter(), 6);
   const storage = memory();
   storage.setItem(SAVE_KEY, JSON.stringify({ version: 6, state: { base: current.base, calendar: current.calendar } }));
-  expect(load(storage)).toEqual({ kind: 'loaded', state: current });
+  expect(load(storage)).toEqual({ kind: 'loaded', state: { ...current, base: { legacyExcess: 0, ...current.base } } });
   const duplicated = { ...current, flea: { ...current.flea, items: [current.base.items[0]!] } };
   storage.setItem(SAVE_KEY, JSON.stringify({ version: 6, state: duplicated }));
   expect(load(storage).kind).toBe('damaged');
@@ -985,4 +987,154 @@ it('продаёт запасной скутер один раз и сохран
   expect(sold.base.base.game.bank).toBe(start.base.base.game.bank + 14400);
   expect(send(sold, sale)).toBe(sold);
   expect(sold.fleet?.work.some(entry => entry.model === 'scooter')).toBe(false);
+});
+
+it('сохраняет открытую цену и отклоняет конкурирующее событие той же ревизии', () => {
+  const start = play(reload(funded(6000)), auctions, enter, { type: 'startAuction' });
+  const first = getView(start).auction!.ask;
+  expect(send(start, { type: 'bid', auctionRef: { lotNumber: 2, offerIndex: 0 } })).toBe(start);
+  expect(send(start, { type: 'bid', auctionRef: { lotNumber: 1, offerIndex: 1 } })).toBe(start);
+  const clicked = play(start, { type: 'bid' });
+  expect(applyCommand(clicked, { type: 'auctionTick', expectedRevision: revision(start) })).toBe(clicked);
+  expect(send(clicked, pass)).toBe(clicked);
+  expect(send(clicked, { type: 'bid' })).toBe(clicked);
+  let current = reload(play(clicked, { type: 'auctionTick' }));
+  while (getView(current).auction) current = play(current, { type: 'auctionTick' });
+  expect(getView(reload(current)).screen).toMatchObject({ phase: 'cargo', purchasePrice: first, bank: 6000 - first });
+  expect(send(current, { type: 'auctionTick' })).toBe(current);
+});
+
+it('после пропущенной цены соперник может выиграть, а игрок может перебить его до закрытия', () => {
+  let state = play(reload(funded(6000)), auctions, enter, { type: 'skipAsk' });
+  expect(send(state, { type: 'bid' })).toBe(state);
+  while (!getView(state).auction!.leader) state = play(state, { type: 'auctionTick' });
+  const outbid = reload(play(state, { type: 'bid' }));
+  expect(getView(outbid).auction?.leader).toBe('player');
+  while (getView(state).auction) state = play(state, { type: 'auctionTick' });
+  expect(getView(reload(state)).closingCall).toContain('₽');
+  expect(getView(state).screen.bank).toBe(6000);
+  expect(getView(reload(play(state, homeFromLot))).closingCall).toBeUndefined();
+});
+
+it('сохраняет старые 20 мест и постепенно гасит превышение без повторной покупки стеллажа', () => {
+  const old = play(funded(200000), { type: 'buyCapacity', target: 'garage' }, { type: 'buyCapacity', target: 'shelves' });
+  const items = Array.from({ length: 20 }, (_, i) => ({ ...old.base.items[0]!, id: 'legacy-' + i }));
+  const original = { ...old, base: { ...old.base, items } };
+  const storage = memory();
+  expect(save(storage, original).ok).toBe(true);
+  const before = storage.getItem(SAVE_KEY);
+  const migrated = load(storage);
+  if (migrated.kind !== 'loaded') throw Error(migrated.kind);
+  const over = migrated.state;
+  expect(over.base.legacyExcess).toBe(12);
+  expect(send(over, { type: 'buyCapacity', target: 'shelves' })).toBe(over);
+  const reduced = play(over, { type: 'discardItem', itemId: 'legacy-0' });
+  expect(reduced.base.legacyExcess).toBe(11);
+  expect(save(storage, reduced).ok).toBe(true);
+  expect(storage.getItem(SAVE_KEY + '.before-v9')).toBe(before);
+  expect(load(storage)).toMatchObject({ state: reduced });
+});
+
+it('разделяет ширму и две коробки и сохраняет вторую после вскрытия первой', () => {
+  const fundedHome = reload(funded(600000, 40));
+  let snapshot: Stage7State | undefined;
+  for (let seed = 1; seed < 200 && !snapshot; seed++) {
+    const game = fundedHome.base.base.game;
+    if (game.phase !== 'hub') throw Error(game.phase);
+    const home = { ...fundedHome, base: { ...fundedHome.base, base: { ...fundedHome.base.base,
+      game: { ...game, offerSeeds: { ...game.offerSeeds, antique: seed } } } } };
+    const auction = play(home, auctions, { type: 'enterAuction', tier: 'antique' });
+    const current = auction.base.base.game;
+    if (current.phase === 'inspection' && current.lot.screenId && current.lot.boxes.length === 2) snapshot = auction;
+  }
+  if (!snapshot) throw Error('Нет тестового лота');
+  let current = snapshot;
+  while (getView(current).auction) {
+    current = play(current, { type: getView(current).auction!.leader === 'player' ? 'auctionTick' : 'bid' });
+  }
+  const before = getView(reload(current)).screen;
+  if (before.phase !== 'cargo') throw Error(before.phase);
+  const first = before.boxes[0]!, second = before.boxes[1]!;
+  expect(new Set([first.id, second.id, before.screenId]).size).toBe(3);
+  const opened = reload(play(current, { type: 'openBox', boxId: first.id }));
+  expect(getView(opened).screen).toMatchObject({ boxes: [second], screenId: before.screenId, bank: before.bank });
+});
+
+it.each([1, 2, 3, 4, 5])('мигрирует дом %i со всеми историческими вариантами стеллажей', (level) => {
+  for (const flags of [[], ['garage'], ['garage', 'shelves']] as const) {
+    const old = funded(5000000, 30);
+    const game = old.base.base.game;
+    if (game.phase !== 'hub') throw Error(game.phase);
+    const fixture: Stage7State = { ...old, base: { ...old.base, capacityUpgrades: flags,
+      ...(level >= 3 ? { workshop: true } : {}), ...(level === 4 || level === 5 ? { house: level } : {}),
+      base: { ...old.base.base, game: { ...game, assets: level > 1 ? ['home'] : [] } } } };
+    const storage = memory();
+    storage.setItem(SAVE_KEY, JSON.stringify({ version: 8, state: fixture }));
+    const loaded = load(storage);
+    if (loaded.kind !== 'loaded') throw Error(loaded.kind);
+    expect(loaded.state.base).toEqual({ ...fixture.base, legacyExcess: 0 });
+    const garage = reload(send(loaded.state, { type: 'navigate', room: 'garage' }));
+    expect(getView(garage).screen).toMatchObject({ garage: { limit: [8, 12, 16, 24, 32][level - 1] } });
+  }
+});
+
+it('доставляет прежний выбор сверх лимита один раз, снятый выбор не восстанавливает исключение', () => {
+  const old = play(funded(90000), { type: 'buyCapacity', target: 'garage' });
+  const eight = { ...old, base: { ...old.base, items: Array.from({ length: 8 }, (_, i) =>
+    ({ ...old.base.items[0]!, id: 'shelf-' + i })) } };
+  const legacy = play(eight, auctions, enter, { type: 'bid' }, { type: 'bid' }, { type: 'openBox', boxId: 'box' },
+    { type: 'toggleCargo', itemId: 'tool' });
+  const store = memory();
+  store.setItem(SAVE_KEY, JSON.stringify({ version: 8, state: legacy }));
+  const loaded = load(store);
+  if (loaded.kind !== 'loaded') throw Error(loaded.kind);
+  const current = loaded.state;
+  expect(current.base.legacyExcess).toBe(1);
+  const removed = reload(play(current, { type: 'toggleCargo', itemId: 'tool' }));
+  expect(removed.base.legacyExcess).toBe(0);
+  expect(send(removed, { type: 'toggleCargo', itemId: 'tool' })).toBe(removed);
+  const delivered = reload(play(current, { type: 'finishCargo', leaveRemaining: true }));
+  expect(delivered.base.legacyExcess).toBe(1);
+  expect(delivered.base.items.filter(i => i.id === 'owned-1-tool')).toHaveLength(1);
+  expect(send(delivered, { type: 'finishCargo', leaveRemaining: true })).toBe(delivered);
+});
+
+it.each([
+  ['Электрический чайник', false, 500, 3600, 5000, 4300],
+  ['Электрический чайник', true, 375, 3600, 5000, 4300],
+  ['Приёмник', false, 300, 1680, 2280, 1980],
+  ['Приёмник', true, 225, 1680, 2280, 1980],
+] as const)('проверяет предел бюджета для ремонта %s, мастерская %s', (name, workshop, price, min, max, value) => {
+  function prepare(bank: number) {
+    const old = funded(bank, 10);
+    const game = old.base.base.game;
+    if (game.phase !== 'hub') throw Error(game.phase);
+    const item = { ...old.base.items[0]!, name, value: 1000, condition: 'damaged' as const, estimate: { min: 800, max: 1200 } };
+    return reload({ ...old, base: { ...old.base, ...(workshop ? { workshop: true } : {}), items: [item],
+      base: { ...old.base.base, game: { ...game, assets: workshop ? ['home'] : [] } } } });
+  }
+  const broke = prepare(price - 1), ready = prepare(price);
+  const repair = { type: 'repairItem', itemId: 'home-kettle' } as const;
+  expect(send(broke, repair)).toBe(broke);
+  expect(getView(ready).screen).toMatchObject({ items: [{ repair: { price, available: true, estimate: { min, max } } }] });
+  const fixed = reload(play(ready, repair));
+  expect(fixed.base.base.game.bank).toBe(0);
+  expect(fixed.base.items[0]).toMatchObject({ value, condition: 'good', estimate: { min, max } });
+  expect(send(fixed, repair)).toBe(fixed);
+});
+
+it('при полном гараже доставляет велосипед и отклоняет новый внутренний груз', () => {
+  const start = reload(funded(6000));
+  const full = { ...start, base: { ...start.base, items: Array.from({ length: 8 }, (_, i) =>
+    ({ ...start.base.items[0]!, id: 'indoor-' + i })) } };
+  const cargo = buy(play(full, auctions));
+  const chosen = reload(play(cargo, { type: 'openBox', boxId: 'box' }, { type: 'toggleCargo', itemId: 'bicycle' }));
+  expect(send(chosen, { type: 'toggleCargo', itemId: 'tool' })).toBe(chosen);
+  const delivered = reload(play(chosen, { type: 'finishCargo', leaveRemaining: true }));
+  expect(getView(delivered).screen).toMatchObject({ garage: { used: 8, limit: 8 } });
+  const bike = delivered.base.items.find(item => item.name === 'Велосипед')!;
+  expect(bike.size).toBe(4);
+  const boxed = reload(play(delivered, pack(bike.id)));
+  expect(getView(boxed).screen).toMatchObject({ garage: { used: 8 } });
+  expect(getView(reload(play(boxed, { type: 'unpackFlea', itemId: bike.id }))).screen).toMatchObject({ garage: { used: 8 } });
 });

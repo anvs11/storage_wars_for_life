@@ -1,5 +1,4 @@
 import type { GarageItemView } from '../game/stage5-contract';
-import rack from './assets/garage-rack.webp';
 import { actionButton, element } from './dom';
 import { garageSprite } from './scene-sprites';
 
@@ -36,30 +35,20 @@ function piece(item: GarageItemView, inspect: (item: GarageItemView, source: HTM
   return button;
 }
 
-export function placeGarageItems(board: HTMLElement, items: readonly GarageItemView[], racks: number,
-  inspect: (item: GarageItemView, source: HTMLElement) => void, level = 1): HTMLElement {
-  const slots = [...builtInSlots];
-  for (const x of [.38, .62].slice(0, racks)) {
-    const image = element('img', 'garage-placement__rack');
-    image.src = rack;
-    image.alt = 'Дополнительный стеллаж';
-    image.style.left = `${x * 100}%`;
-    board.append(image);
-    slots.push(['middle', x, .61, .082, .078], ['lower', x, .68, .082, .071]);
-  }
-  // Display fixtures change with the property. Storage limits still come from the inventory.
-  const fixtures: readonly [number, number, string][] = [
-    [2, .25, 'Полка для домашних вещей'], [3, .71, 'Инструментальная стойка'],
-    [4, .48, 'Выставочная секция'], [5, .84, 'Стеллаж для коллекции'],
-  ];
-  for (const [tier, x, name] of fixtures) {
-    if (tier > level) continue;
-    const fixture = element('img', 'garage-fixture garage-fixture--' + tier);
-    fixture.src = rack;
-    fixture.alt = name;
-    fixture.style.left = x * 100 + '%';
-    board.append(fixture);
-    slots.unshift(['middle', x, .675, .08, .075], ['lower', x, .745, .08, .065]);
+export function placeGarageItems(board: HTMLElement, items: readonly GarageItemView[],
+  inspect: (item: GarageItemView, source: HTMLElement) => void, level = 1, outside = false): HTMLElement {
+  const slots: Slot[] = level === 1 ? [...builtInSlots] : [];
+  if (outside) {
+    const gate = [.72, .75, .68, .74, .70][level - 1]!;
+    slots.splice(0, slots.length, ['oversize', gate, .84, .30, .25], ['oversize', gate - .30, .90, .33, .28]);
+  } else if (level > 1) {
+    // Contact lines measured against each empty interior, normalized to the photograph.
+    const shelfY = [[.39,.51,.62], [.34,.46,.57], [.36,.46,.55], [.40,.48,.56]][level - 2]!;
+    for (const [row, surface] of (['upper','middle','lower'] as const).entries()) {
+      for (const x of [.065,.165]) slots.push([surface, x, shelfY[row]!, .09, .115]);
+    }
+    slots.push(['bench', .82, [.52,.55,.51,.54][level - 2]!, .13,.14],
+      ['bench', .945, [.55,.58,.54,.56][level - 2]!, .10,.13], ...builtInSlots.filter(s => s[0] === 'floor' || s[0] === 'oversize'));
   }
   const occupied = new Set<Slot>();
   const overflow = element('details', 'garage-overflow');
@@ -86,12 +75,12 @@ export function placeGarageItems(board: HTMLElement, items: readonly GarageItemV
     const [minX, minY, maxX, maxY] = sprite.bounds;
     const bboxWidth = maxX - minX;
     const bboxHeight = maxY - minY;
-    const artWidth = Math.min(maxWidth / bboxWidth, maxHeight / (bboxHeight * 1.5));
+    const artWidth = Math.min(maxWidth / bboxWidth, maxHeight / (bboxHeight * 1.5 / sprite.aspect));
     button.classList.add('garage-placement');
     button.style.setProperty('--x', `${x * 100}%`);
     button.style.setProperty('--y', `${y * 100}%`);
     button.style.setProperty('--w', `${artWidth * bboxWidth * 100}%`);
-    button.style.setProperty('--h', `${artWidth * bboxHeight * 150}%`);
+    button.style.setProperty('--h', `${artWidth * bboxHeight * 150 / sprite.aspect}%`);
     button.style.setProperty('--sprite-w', `${100 / bboxWidth}%`);
     button.style.setProperty('--sprite-x', `${-minX / bboxWidth * 100}%`);
     button.style.setProperty('--sprite-y', `${-minY / bboxHeight * 100}%`);

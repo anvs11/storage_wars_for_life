@@ -1,0 +1,154 @@
+[
+  {
+    "tier": "ordinary",
+    "modern": false,
+    "seeds": 5000,
+    "repeats": 2328,
+    "familyFallbacks": 0,
+    "replacements": 1032,
+    "uniqueRatio": 0.793365307753797,
+    "adjacentJaccard": 0.21180902847236227,
+    "outsideFinalBudget": 51,
+    "themes": {
+      "workshop": 2510,
+      "household": 2490
+    },
+    "rarity": {
+      "common": 8363,
+      "rare": 320,
+      "replacement": 1032,
+      "unusual": 2795
+    },
+    "wins": 2580,
+    "meanBids": 5.4564,
+    "meanSeconds": null,
+    "meanPurchase": 4174.302325581395,
+    "meanGrossMargin": 2065.88992248062
+  },
+  {
+    "tier": "ordinary",
+    "modern": true,
+    "seeds": 5000,
+    "repeats": 0,
+    "familyFallbacks": 0,
+    "replacements": 1032,
+    "uniqueRatio": 1,
+    "adjacentJaccard": 0.27538841101553524,
+    "outsideFinalBudget": 51,
+    "themes": {
+      "workshop": 2510,
+      "household": 2490
+    },
+    "rarity": {
+      "common": 7690,
+      "rare": 1052,
+      "replacement": 1032,
+      "unusual": 2736
+    },
+    "wins": 2674,
+    "meanBids": 5.499,
+    "meanSeconds": 13.970320000000001,
+    "meanPurchase": 4183.395661929693,
+    "meanGrossMargin": 2061.482797307405
+  },
+  {
+    "tier": "selected",
+    "modern": false,
+    "seeds": 5000,
+    "repeats": 564,
+    "familyFallbacks": 0,
+    "replacements": 2068,
+    "uniqueRatio": 0.9548438751000801,
+    "adjacentJaccard": 0.2739914649596597,
+    "outsideFinalBudget": 167,
+    "themes": {
+      "selected": 5000
+    },
+    "rarity": {
+      "replacement": 2068,
+      "unusual": 4129,
+      "common": 5043,
+      "rare": 1250
+    },
+    "wins": 2057,
+    "meanBids": 10.9848,
+    "meanSeconds": null,
+    "meanPurchase": 17213.903743315506,
+    "meanGrossMargin": 8104.011667476908
+  },
+  {
+    "tier": "selected",
+    "modern": true,
+    "seeds": 5000,
+    "repeats": 0,
+    "familyFallbacks": 0,
+    "replacements": 2068,
+    "uniqueRatio": 1,
+    "adjacentJaccard": 0.27278455691138515,
+    "outsideFinalBudget": 179,
+    "themes": {
+      "selected": 5000
+    },
+    "rarity": {
+      "replacement": 2068,
+      "unusual": 4099,
+      "common": 4617,
+      "rare": 1706
+    },
+    "wins": 2048,
+    "meanBids": 11.21,
+    "meanSeconds": 22.51249,
+    "meanPurchase": 17142.578125,
+    "meanGrossMargin": 8041.4423828125
+  },
+  {
+    "tier": "antique",
+    "modern": false,
+    "seeds": 5000,
+    "repeats": 756,
+    "familyFallbacks": 0,
+    "replacements": 2068,
+    "uniqueRatio": 0.9394715772618094,
+    "adjacentJaccard": 0.34065146362605714,
+    "outsideFinalBudget": 202,
+    "themes": {
+      "antiques": 5000
+    },
+    "rarity": {
+      "replacement": 2068,
+      "unusual": 4010,
+      "common": 3471,
+      "rare": 2941
+    },
+    "wins": 1892,
+    "meanBids": 26.3858,
+    "meanSeconds": null,
+    "meanPurchase": 64559.989429175475,
+    "meanGrossMargin": 18448.982029598308
+  },
+  {
+    "tier": "antique",
+    "modern": true,
+    "seeds": 5000,
+    "repeats": 0,
+    "familyFallbacks": 0,
+    "replacements": 2068,
+    "uniqueRatio": 1,
+    "adjacentJaccard": 0.3573448022937942,
+    "outsideFinalBudget": 193,
+    "themes": {
+      "antiques": 5000
+    },
+    "rarity": {
+      "replacement": 2068,
+      "unusual": 4627,
+      "common": 3005,
+      "rare": 2790
+    },
+    "wins": 1895,
+    "meanBids": 26.5786,
+    "meanSeconds": 44.77785,
+    "meanPurchase": 63616.35883905013,
+    "meanGrossMargin": 19237.08073878628
+  }
+]

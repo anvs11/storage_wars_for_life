@@ -115,3 +115,18 @@ it('измеряет частоту украшений в закрытых ме�
     expect(item.percent).toBeLessThan(4);
   }
 });
+
+it('версия 12 сохраняет экземпляры и исключает одинаковые видимые названия после замены сервизов', () => {
+  for (const tier of tiers) {
+    for (let seed = 0; seed < 80; seed++) {
+      const lot = generateStage6Lot(tier, seed, 3, true);
+      expect(generateStage6Lot(tier, seed, 3, true)).toEqual(lot);
+      expect(new Set(lot.visibleFinds.map(item => item.name)).size).toBe(lot.visibleFinds.length);
+      const ids = [...lot.visibleFinds.map(item => item.id), ...lot.boxes.flatMap(box => [box.id, ...box.contents.map(item => item.id)])];
+      expect(new Set(ids).size).toBe(ids.length);
+      const fromFacade = opponentLimits(tier, lot.visibleFinds.map(item => item.hint), lot.boxes.length,
+        lot.opponents.map(opponent => opponent.name), seededRandom(seed ^ 0x41c6ce57), stage6AuctionPricing);
+      expect(lot.opponents).toEqual(fromFacade);
+    }
+  }
+});
