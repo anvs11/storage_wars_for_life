@@ -64,7 +64,7 @@ export function getSavedInventory(state: Record<string, unknown>, contents: Inve
 }
 
 export function isGarageSnapshot(
-  value: Record<string, unknown>, lot: GarageLot<string>, advancePrice?: (price: number) => number,
+  value: Record<string, unknown>, lot: GarageLot<string>, advancePrice?: (price: number) => number, openBidding = false,
 ): boolean {
   const { phase, revision, bank, status, lotNumber, inspectedItemIds, activeOpponentIds } = value;
   if (!isMoney(revision) || !isMoney(bank) || !isMoney(status) || !isMoney(lotNumber) ||
@@ -76,6 +76,16 @@ export function isGarageSnapshot(
   if (phase === 'inspection' || phase === 'recovery') {
     return exactKeys(value, lotKeys) && matches(activeOpponentIds, opponentIds) &&
       (phase === 'inspection' ? bank >= lot.openingBid : bank < lot.openingBid && inspectedItemIds.length === 0);
+  }
+
+  if (openBidding && phase === 'reveal' && advancePrice && isMoney(value.purchasePrice)) {
+    // A player can win at the opening price or one step above an affordable NPC bid.
+    const ceiling = advancePrice(Math.max(lot.openingBid, ...lot.opponents.map(opponent => opponent.limit)));
+    let price = lot.openingBid;
+    while (price < value.purchasePrice && price <= ceiling) price = advancePrice(price);
+    const inventory = getSavedInventory(value, lot);
+    return price === value.purchasePrice && price <= ceiling && activeOpponentIds.length === 0
+      && exactKeys(value, [...inventoryKeys, 'purchasePrice']) && !!inventory?.hasRemaining && bank >= inventory.revenue;
   }
 
   // Проверяем путь ставок по тем же правилам, которыми он был принят.

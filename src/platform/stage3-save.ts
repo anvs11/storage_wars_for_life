@@ -63,7 +63,7 @@ export function isStage3State(value: unknown, economy = legacyEconomy, rubles = 
   }
   return isSeed(lotSeed) && status >= auctions[tier].requiredStatus &&
     (phase !== 'recovery' || tier === 'ordinary') &&
-    isGarageSnapshot(garage, economy.lot(tier, lotSeed, lotNumber), economy.advancePrice);
+    isGarageSnapshot(garage, economy.lot(tier, lotSeed, lotNumber), economy.advancePrice, economy.openBidding);
 }
 
 export function decodeStage3Snapshot(value: unknown): Stage3State | null {

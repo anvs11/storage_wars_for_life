@@ -12,6 +12,7 @@ import type { GarageState, Stage2State } from './stage2-engine';
 import type { AuctionOpponentView, AuctionTier, OfferId, Stage3Command, Stage3Scene, Stage3View } from './stage3-contract';
 
 export interface GameEconomy {
+  readonly openBidding?: boolean;
   readonly openingBid: (tier: AuctionTier, seed: number, lotNumber: number) => number;
   readonly lot: (tier: AuctionTier, seed: number, lotNumber: number) => GarageLot<Stage3Scene>;
   readonly advancePrice: (price: number) => number;

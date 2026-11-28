@@ -9,7 +9,7 @@ import { scheduleFamilyDate } from '../game/stage7-family';
 import type { FamilyDate } from '../game/stage7-family';
 import { baggageItems, boxVolume, fleaCapacity, fleaMorning, initialFlea } from '../game/stage7-flea';
 import type { FleaReceipt, FleaSale } from '../game/stage7-flea';
-import { economyFor, transportFor } from '../game/stage5-engine';
+import { economyFor, projectedExcess, transportFor } from '../game/stage5-engine';
 import { hasBonusAuction, trailerIds, transportModels } from '../game/transport';
 import type { TransportState } from '../game/transport';
 import type { Fleet } from '../game/showroom';
@@ -28,7 +28,8 @@ import { areIds, BACKUP_KEY, exactKeys, isMoney, isRecord, loadSnapshot, SAVE_KE
 import type { LoadResult, SavedCommandResult, SaveResult, SaveStorage } from './save';
 import { decodeStage5, isOwned, isStage5State, isTransport } from './stage5-save';
 
-const version = 8;
+import { validRound } from '../game/open-bidding';
+const version = 9;
 const previousPeriods = ['morning', 'afternoon', 'evening', 'night'] as const;
 const minimumPeriod = (period: Period): number => period === 'lateAfternoon' ? 2 : previousPeriods.indexOf(period);
 
@@ -80,16 +81,16 @@ function readFleaReceipt(visit: Record<string, unknown>, snapshot: CalendarSnaps
   return { phase: 'receipt', day: calendar.day, sold, revenue, ...(withBank ? { bankBefore: bank - revenue } : {}) };
 }
 
-function readCalendarSnapshot(value: Record<string, unknown>, fleaLimit: number, lastAuctionNumber?: number, bonusUsed = false): CalendarSnapshot | null {
+function readCalendarSnapshot(value: Record<string, unknown>, fleaLimit: number, lastAuctionNumber?: number, bonusUsed = false, modern = false): CalendarSnapshot | null {
   const { base, calendar, flea } = value;
-  if (exactKeys(value, ['base', 'calendar']) && isStage5State(base) && isCalendar(calendar, base)) {
+  if (exactKeys(value, ['base', 'calendar']) && isStage5State(base, [], undefined, modern) && isCalendar(calendar, base)) {
     return { base, calendar, flea: initialFlea(base) };
   }
   if (!exactKeys(value, ['base', 'calendar', 'flea']) || !isRecord(flea) ||
       !exactKeys(flea, ['items', 'seed', 'baggageSelection', 'visit'])) return null;
   const { items, seed, baggageSelection, visit } = flea;
   if (!isMoney(seed) || seed > 0xffffffff || !Array.isArray(items) || !items.every(isOwned) ||
-      !isStage5State(base, items, lastAuctionNumber) || !isCalendar(calendar, base, lastAuctionNumber !== undefined, bonusUsed)) return null;
+      !isStage5State(base, items, lastAuctionNumber, modern) || !isCalendar(calendar, base, lastAuctionNumber !== undefined, bonusUsed)) return null;
   const bag = baggageItems(base);
   if (!areIds(baggageSelection, bag.filter(({ id }) => !base.cargo.includes(id)).map(({ id }) => id)) ||
       boxVolume(items) + boxVolume(bag.filter(({ id }) => baggageSelection.includes(id))) > fleaLimit) return null;
@@ -235,11 +236,11 @@ function isPhone(value: unknown, { base, calendar }: CalendarSnapshot): value is
     isMoney(order.price) && order.price > 0 && order.price <= orderBudget && validDue(order.due, 3));
 }
 
-function readStage7(value: unknown, fleaLimit = fleaCapacity, legacyPhone = false): Stage7State | null {
+function readStage7(value: unknown, fleaLimit = fleaCapacity, legacyPhone = false, modern = false): Stage7State | null {
   if (!isRecord(value)) return null;
-  const { paidVisit = null, familyDate: savedDate, jobUnlocked, parkedLots, lastAuctionNumber, bonusAuctionUsed, life, cityVisit, personalCar, fleet, phone, ...core } = value;
+  const { paidVisit = null, familyDate: savedDate, jobUnlocked, parkedLots, lastAuctionNumber, bonusAuctionUsed, life, cityVisit, personalCar, fleet, phone, round, ...core } = value;
   if (lastAuctionNumber !== undefined && !isMoney(lastAuctionNumber)) return null;
-  const snapshot = readCalendarSnapshot(core, fleaLimit, lastAuctionNumber, bonusAuctionUsed === true);
+  const snapshot = readCalendarSnapshot(core, fleaLimit, lastAuctionNumber, bonusAuctionUsed === true, modern);
   if (!snapshot || (paidVisit !== null && !isVisitPhoto(paidVisit, snapshot))) return null;
   if (life !== undefined && !isLife(life, snapshot)) return null;
   if (phone !== undefined && (legacyPhone || !isPhone(phone, snapshot))) return null;
@@ -253,6 +254,9 @@ function readStage7(value: unknown, fleaLimit = fleaCapacity, legacyPhone = fals
   if (bonusAuctionUsed !== undefined && (bonusAuctionUsed !== true ||
     (snapshot.calendar.period !== 'evening' && snapshot.calendar.period !== 'night') ||
     !(fleet?.work.some(hasBonusAuction) ?? hasBonusAuction(activeWork)))) return null;
+  if (round !== undefined && (!modern || snapshot.base.lotEdition !== 12 || (game.phase !== 'inspection' && !(game.phase === 'result' && game.receipt.outcome === 'passed')) ||
+    !validRound(round, game.lot, game.lotSeed ?? 0, game.bank, economyFor(snapshot.base).advancePrice))) return null;
+  if (game.phase === 'result' && round && (round.elapsed !== 9 || round.bids.at(-1) === 'player')) return null;
   const latestLot = lastAuctionNumber ?? game.lotNumber;
   if (lastAuctionNumber !== undefined && (game.phase !== 'reveal' || latestLot < game.lotNumber || latestLot > game.revision)) return null;
   if (parkedLots !== undefined) {
@@ -260,7 +264,7 @@ function readStage7(value: unknown, fleaLimit = fleaCapacity, legacyPhone = fals
     const seen = new Set<number>();
     for (const parked of parkedLots) {
       if (!isRecord(parked) || !isRecord(parked.game) || parked.game.phase !== 'reveal' ||
-          typeof parked.legacyLot !== 'boolean' || (parked.lotEdition !== 5 && parked.lotEdition !== 6 && parked.lotEdition !== 7) ||
+          typeof parked.legacyLot !== 'boolean' || (parked.lotEdition !== 5 && parked.lotEdition !== 6 && parked.lotEdition !== 7 && !(modern && parked.lotEdition === 12)) ||
           !isStage3State(parked.game,
             economyFor({ legacyLot: parked.legacyLot, lotEdition: parked.lotEdition }), true)) return null;
       const { lotNumber, revision } = (parked as unknown as ParkedLot).game;
@@ -275,7 +279,7 @@ function readStage7(value: unknown, fleaLimit = fleaCapacity, legacyPhone = fals
   if (!isFamilyDate(familyDate, snapshot)) return null;
   const reviews = snapshot.base.reviews;
   const normalized = reviews ? { ...snapshot.base, reviews: reviews.map(updateLegacyReview) } : snapshot.base;
-  const state: Stage7State = { ...snapshot, base: normalized, paidVisit, familyDate, ...(jobUnlocked === true ? { jobUnlocked } : {}),
+  const state: Stage7State = { ...snapshot, ...(round ? { round } : {}), base: normalized, paidVisit, familyDate, ...(jobUnlocked === true ? { jobUnlocked } : {}),
     ...(life ? { life } : {}),
     ...(car ? { personalCar: car.id } : {}), ...(cityVisit === true ? { cityVisit } : {}),
     ...(fleet ? { fleet } : {}), ...(phone ? { phone } : {}),
@@ -284,19 +288,26 @@ function readStage7(value: unknown, fleaLimit = fleaCapacity, legacyPhone = fals
   return legacyPhone && (life || normalized.base.relationshipStep !== 'unmet') ? { ...state, phone: initialPhone(state) } : state;
 }
 
+function upgradeStorage(state: Stage7State | null): Stage7State | null {
+  if (!state) return null;
+  const base = { ...state.base, legacyExcess: 0 };
+  return { ...state, base: { ...base, legacyExcess: projectedExcess(base) } };
+}
+
 function decode(serialized: string | null): Stage7State | null {
   if (serialized === null) return null;
   try {
     const value: unknown = JSON.parse(serialized);
     if (isRecord(value)) {
-      if (value.version === version) return readStage7(value.state);
-      if (value.version === 7) return readStage7(value.state, fleaCapacity, true);
-      if (value.version === 6) return readStage7(value.state, 4, true);
+      if (value.version === version) return readStage7(value.state, fleaCapacity, false, true);
+      if (value.version === 8) return upgradeStorage(readStage7(value.state));
+      if (value.version === 7) return upgradeStorage(readStage7(value.state, fleaCapacity, true));
+      if (value.version === 6) return upgradeStorage(readStage7(value.state, 4, true));
     }
     const previous = decodeStage5(serialized);
     if (!previous) return null;
     const migrated = migrateStage5(previous);
-    return previous.base.relationshipStep === 'unmet' ? migrated : { ...migrated, phone: initialPhone(migrated) };
+    return upgradeStorage(previous.base.relationshipStep === 'unmet' ? migrated : { ...migrated, phone: initialPhone(migrated) });
   } catch {
     return null;
   }
@@ -307,8 +318,19 @@ export function load(storage: SaveStorage): LoadResult<Stage7State> {
 }
 
 export function save(storage: SaveStorage, state: Stage7State): SaveResult {
-  if (!readStage7(state)) return { ok: false, message: 'Не удалось проверить новое сохранение. Повторите действие.' };
-  return writeSnapshot(storage, { version, state }, decode);
+  if (!readStage7(state, fleaCapacity, false, state.base.legacyExcess !== undefined)) return { ok: false, message: 'Не удалось проверить новое сохранение. Повторите действие.' };
+  if (state.base.legacyExcess !== undefined) {
+    try {
+      const key = SAVE_KEY + '.before-v9';
+      if (storage.getItem(key) === null) {
+        for (const slot of [SAVE_KEY, BACKUP_KEY]) {
+          const old = storage.getItem(slot);
+          if (old && decode(old) && JSON.parse(old).version < version) { storage.setItem(key, old); break; }
+        }
+      }
+    } catch { return { ok: false, message: 'Не удалось сохранить резервную копию перед обновлением.' }; }
+  }
+  return writeSnapshot(storage, { version: state.base.legacyExcess === undefined ? 8 : version, state }, decode);
 }
 
 export function resetSave(storage: SaveStorage, fresh: Stage7State): SaveResult {

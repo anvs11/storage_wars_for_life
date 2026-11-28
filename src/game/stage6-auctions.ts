@@ -1,6 +1,6 @@
 import type { GarageLot } from './catalog';
 import { draw, seededRandom } from './random';
-import { opponentLimits } from './repeat-auctions';
+import { generateLot, opponentLimits } from './repeat-auctions';
 import type { AuctionTier, Stage3Scene } from './stage3-contract';
 import { rubleAuctionPricing, rubleEconomy } from './stage5-economy';
 import { everydayFor, jewelryFor, tablewareFor } from './stage6-catalog';
@@ -16,9 +16,12 @@ export const stage6AuctionPricing = {
 };
 
 // The legacy generator verifies Stage 5 snapshots. New saved lots must opt in to this version.
-export function generateStage6Lot(tier: AuctionTier, seed: number, lotNumber: number): GarageLot<Stage3Scene> {
-  const base = rubleEconomy.lot(tier, seed, lotNumber);
-  if (base.sceneId === 'tutorial') return base;
+export function generateStage6Lot(tier: AuctionTier, seed: number, lotNumber: number, distinct = false): GarageLot<Stage3Scene> {
+  const tutorial = lotNumber === 1 && tier === 'ordinary';
+  const base = distinct && !tutorial ? generateLot(tier, seed, lotNumber, rubleAuctionPricing,
+    rubleEconomy.openingBid(tier, seed, lotNumber), true) : rubleEconomy.lot(tier, seed, lotNumber);
+  if (base.sceneId === 'tutorial') return distinct
+    ? { ...base, opponents: base.opponents.map(opponent => ({ ...opponent, limit: base.openingBid })) } : base;
 
   const visibleRoll = draw(seed ^ visibleStream);
   const showTableware = base.sceneId !== 'workshop' && visibleRoll.value < 0.4;
@@ -27,7 +30,7 @@ export function generateStage6Lot(tier: AuctionTier, seed: number, lotNumber: nu
   const hiddenRandom = seededRandom(seed ^ hiddenStream);
   const boxes = base.boxes.map((box, index) => ({
     ...box,
-    name: index === 0 && draw(seed ^ 0x5a1f83bc).value < 0.35 ? 'Вещи за ширмой' : box.name,
+    name: !distinct && index === 0 && draw(seed ^ 0x5a1f83bc).value < 0.35 ? 'Вещи за ширмой' : box.name,
     contents: box.contents.map((item) => {
       const slotSeed = Math.floor(hiddenRandom() * 0x100000000);
       return jewelryFor(tier, item.id, slotSeed) ?? everydayFor(item.id, slotSeed ^ 0x743adb91) ?? item;
@@ -37,10 +40,14 @@ export function generateStage6Lot(tier: AuctionTier, seed: number, lotNumber: nu
     tier, visibleFinds.map(({ hint }) => hint), boxes.length, base.opponents.map(({ name }) => name),
     seededRandom(seed ^ 0x41c6ce57), stage6AuctionPricing,
   );
-  return { ...base, visibleFinds, boxes, opponents };
+  return { ...base, visibleFinds, boxes, opponents, ...(distinct ? { layoutSeed: draw(seed ^ 0x63a27e19).word } : {}), ...(distinct && draw(seed ^ 0x5a1f83bc).value < 0.35
+    ? { screenId: `lot-${lotNumber}-decor-screen` } : {}) };
 }
 
 export const stage6Economy = { ...rubleEconomy, lot: generateStage6Lot };
+
+export const stage12Economy = { ...stage6Economy, openBidding: true, lot: (tier: AuctionTier, seed: number, number: number) =>
+  generateStage6Lot(tier, seed, number, true) };
 
 export const firstAuctionEconomy = {
   ...stage6Economy,

@@ -210,7 +210,7 @@ export function getView<Scene extends string>(
   for (const { id, name } of state.lot.boxes) {
     visibleItems.push({ id, name, hint: null, canInspect: false });
   }
-  const base = { revision, bank, visibleItems, lotNumber: state.lotNumber, sceneId: state.lot.sceneId };
+  const base = { revision, bank, visibleItems, lotNumber: state.lotNumber, sceneId: state.lot.sceneId, ...(state.lot.layoutSeed !== undefined ? { layoutSeed: state.lot.layoutSeed } : {}), ...(state.lot.screenId ? { screenId: state.lot.screenId } : {}) };
 
   if (auctionOpen) {
     const nextBidAmount = nextBid(state, advancePrice);

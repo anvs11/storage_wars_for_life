@@ -116,6 +116,8 @@ export type Stage5View = Exclude<Stage4View, { phase: 'prologue' | 'reveal' | 'r
   | (Shared & { readonly phase: 'baggageArrival' })
   | (Shared & {
     readonly phase: 'cargo';
+    readonly screenId?: string;
+  readonly layoutSeed?: number;
     readonly sceneId: Stage3Scene;
     readonly lotNumber: number;
     readonly baggage?: boolean;

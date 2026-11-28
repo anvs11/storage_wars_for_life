@@ -1,5 +1,5 @@
 import { draw } from './random';
-import { capacityLimit, jewelryLimit, openCargoItems, storageUsage } from './stage5-engine';
+import { houseLimit, outdoorFind, jewelryLimit, openCargoItems, storageUsage } from './stage5-engine';
 import type { OwnedItem, Stage5State } from './stage5-engine';
 import type { CalendarState } from './stage7-calendar';
 
@@ -51,8 +51,9 @@ export function packingBlock(base: Stage5State, used: number, item: OwnedItem): 
 
 export function returnable(base: Stage5State, item: OwnedItem): boolean {
   const jewelry = item.position === 'jewelryBox';
-  const limit = jewelry ? jewelryLimit : capacityLimit(base.capacityUpgrades, 'garage');
-  return storageUsage(base.items, jewelry) + item.size <= limit;
+  const limit = jewelry ? jewelryLimit : houseLimit(base);
+  if (base.legacyExcess !== undefined && outdoorFind(item)) return true;
+  return storageUsage(base.items, jewelry, base.legacyExcess !== undefined) + item.size <= limit;
 }
 
 function salePrice(value: number, percent: number): number {

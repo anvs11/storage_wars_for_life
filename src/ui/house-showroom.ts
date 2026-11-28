@@ -1,4 +1,4 @@
-import { houseLevels, houses } from '../game/houses';
+import { houseCapacity, houseLevels, houses } from '../game/houses';
 import type { HouseLevel } from '../game/houses';
 import type { Stage7Dispatch, Stage7View } from '../game/stage7-engine';
 import { actionButton, addFact, bankFor, element, rubles } from './dom';
@@ -60,7 +60,7 @@ export function createHouseShowroom(root: HTMLElement, dispatch: Stage7Dispatch)
     heading.tabIndex = -1;
     heading.dataset.houseFocus = 'model';
     live.append(heading, element('p', 'hub__detail', house.detail));
-    panel.append(live);
+    panel.append(live, element('p', '', `Вместимость гаража · ${houseCapacity[current]} → ${houseCapacity[level]}`));
     if (level <= current) {
       panel.append(element('p', 'showroom__state', level === current ? 'Твой текущий дом' : 'У тебя уже есть дом выше классом'));
     } else {

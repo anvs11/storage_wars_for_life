@@ -162,7 +162,57 @@ export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage
     && root.firstElementChild?.getAttribute('data-auction-lot') === String(screen.lotNumber);
   const previousTransport = root.querySelector<HTMLElement>('.owned-transport')?.dataset;
   const transportFocus = (document.activeElement as HTMLElement | null)?.dataset.transportFocus;
+  const restoreSkipFocus = (document.activeElement as HTMLElement | null)?.dataset.garageFocus === 'skipAsk';
   mountStage5(root, screen, dispatch, calendar, { data: flea, dispatch });
+  if (view.closingCall) {
+    const heading = root.querySelector('.garage__panel h2');
+    if (heading) heading.textContent = view.closingCall;
+  }
+  if (view.auction && screen.phase === 'inspection') {
+    const auction = view.auction;
+    const panel = root.querySelector<HTMLElement>('.auction-layout > .garage__panel')!;
+    const controls = panel.querySelector('.garage__controls')!;
+    let bid = controls.querySelector<HTMLButtonElement>('[data-garage-focus="bid"]');
+    if (!bid) {
+      bid = element('button', primary);
+      bid.type = 'button';
+      bid.dataset.garageFocus = 'bid';
+      controls.prepend(bid);
+      panel.querySelector('.garage__prompt')?.remove();
+    }
+    const leading = auction.leader === 'player';
+    if (!auction.running) {
+      const start = actionButton('Начать торги', primary, () => dispatch({ type: 'startAuction', expectedRevision }));
+      start.dataset.garageFocus = 'bid';
+      const focused = bid === document.activeElement;
+      bid.replaceWith(start);
+      if (focused) start.focus({ preventScroll: true });
+    } else {
+      bid.textContent = leading ? 'Ваша ставка лидирует' : 'Ставка ' + rubles(auction.ask);
+      bid.disabled = leading || auction.skipped || auction.ask > screen.bank;
+    }
+    const pass = controls.querySelector<HTMLButtonElement>('[data-garage-focus="pass"]');
+    if (pass) { pass.textContent = 'Выйти'; pass.disabled = leading; }
+    const skip = actionButton(auction.skipped ? 'Цена пропущена' : 'Пропустить цену', 'garage__button',
+      () => dispatch({ type: 'skipAsk', expectedRevision }));
+    skip.disabled = leading || auction.skipped;
+    skip.dataset.garageFocus = 'skipAsk';
+    if (auction.running) controls.append(skip);
+    if (restoreSkipFocus) (skip.disabled ? pass : skip)?.focus({ preventScroll: true });
+    if (auction.ask > screen.bank && !leading) {
+      controls.before(element('p', 'garage__prompt', `Для ставки нужно ${rubles(auction.ask)}, в банке ${rubles(screen.bank)}.`));
+    }
+    const line = panel.querySelector('.auctioneer p');
+    if (line) line.textContent = !auction.running ? `Осмотрите лот. Кто даст ${rubles(auction.ask)}?` : auction.elapsed >= 7 ? `Последний вызов · ${10 - auction.elapsed}` : `Кто даст ${rubles(auction.ask)}?`;
+    root.querySelectorAll<HTMLElement>('.auction-bidder').forEach((row, index) => {
+      const participant = auction.participants[index];
+      if (!participant) return;
+      const leader = participant.id === auction.leader;
+      row.dataset.bidderState = leader ? 'leading' : participant.out ? 'out' : 'waiting';
+      const speech = row.querySelector('.auction-bidder__speech')!;
+      speech.textContent = participant.out ? (participant.amount ? 'Пас · ' + rubles(participant.amount) : 'Пас') : participant.amount === undefined ? '' : (leader ? (auction.elapsed === 0 ? 'Здесь! · ' : 'Лидер · ') : '') + rubles(participant.amount);
+    });
+  }
   if (screen.phase === 'market' && view.showroom) {
     const vehicles = element('section', 'stage5__market market-vehicles');
     for (const car of [...view.showroom.work, ...view.showroom.personal].filter(car => car.owned)) {
@@ -203,12 +253,10 @@ export function mountStage7(root: HTMLElement, view: Stage7View, dispatch: Stage
     const notes = element('div', '');
     notes.append(element('strong', '', vehicleName[view.vehicle.model]),
       element('p', '', `Мест в транспорте: ${view.vehicle.capacity} · свободно в гараже: ${garageFree}`));
-    if (tutorialDelivery) notes.append(element('p', '', garageFree >= 4
-      ? 'Для велосипеда доступен бесплатный вывоз в гараж.'
-      : 'Бесплатный вывоз велосипеда требует 4 свободных мест в домашнем гараже.'));
+    if (tutorialDelivery) notes.append(element('p', '', 'Учебный велосипед доставят к воротам бесплатно.'));
     if (longLoad) notes.append(element('p', '', `Для находки «${longLoad}» понадобится пикап или фургон.`));
     transport.append(notes);
-    root.querySelector('.auction-layout > .garage__panel')?.append(transport);
+    root.querySelector('.auction-layout')?.after(transport);
   }
   if (boughtNow) {
     const announcer = element('div', 'auction-call');

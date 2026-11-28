@@ -52,7 +52,7 @@ export function sceneSprite(name: string): HTMLImageElement | null {
 // Normalized opaque bounds measured from the square PNGs at alpha >= 36.
 const opaqueBounds = new Map<string, readonly [number, number, number, number]>([
   [amplifier, [0.026, 0.315, 0.974, 0.759]],
-  [bicycle, [0.019, 0, 0.997, 1]],
+  [bicycle, [0.05, 0.038, 0.946, 0.962]],
   [box, [0.071, 0.15, 0.913, 0.913]],
   [camera, [0.086, 0.194, 0.935, 0.897]],
   [candlestick, [0.267, 0.056, 0.728, 0.935]],
@@ -82,7 +82,22 @@ const opaqueBounds = new Map<string, readonly [number, number, number, number]>(
 export function garageSprite(name: string) {
   const src = artwork.find(([pattern]) => pattern.test(name))?.[1];
   const bounds = src === undefined ? undefined : opaqueBounds.get(src);
-  return src && bounds ? { picture: sprite(src), bounds } : null;
+  return src && bounds ? { picture: sprite(src), bounds, aspect: src === bicycle ? 500 / 260 : 1 } : null;
+}
+
+/** Same small offsets before and after purchase; the layout seed never enters pricing. */
+export function placeLotStage(node: HTMLElement, seed?: number): void {
+  if (seed === undefined) return;
+  node.style.setProperty('--lot-shift-x', ((seed % 7) - 3) + '%');
+  node.style.setProperty('--lot-shift-y', (((seed >>> 8) % 5) - 2) + '%');
+}
+
+export function screenDecor(id: string) {
+  const image = sprite(screen);
+  image.className = 'lot-screen-decor';
+  image.dataset.instanceId = id;
+  image.alt = 'Складная ширма';
+  return image;
 }
 
 export function stackedBoxes(): HTMLImageElement {

@@ -32,6 +32,8 @@ export type Stage2Scene = 'tutorial' | 'workshop' | 'household';
 interface AuctionDetails<Scene extends string> {
   readonly lotNumber: number;
   readonly sceneId: Scene;
+  readonly screenId?: string;
+  readonly layoutSeed?: number;
   readonly visibleItems: readonly VisibleItem[];
 }
 

@@ -9,7 +9,7 @@ import type { FamilyDate } from './stage7-family';
 import { advanceRelationship, canOpenRelationship, getRelationshipGoal } from './relationships';
 import type { RelationshipGoal, RelationshipStep } from './stage4-contract';
 import type { GarageItemView, Stage5Command, Stage5View, VehicleView } from './stage5-contract';
-import { applyCommand as applyStage5, capacityLimit, economyFor, finishCargo, getView as getStage5View, hasTutorialDelivery, listingsWithReplies, newGame as newStage5, settleSales, storageUsage, transportFor, updateStage5, vehicleFor, waitForOffers } from './stage5-engine';
+import { applyCommand as applyStage5, houseLimit, projectedExcess, economyFor, finishCargo, getView as getStage5View, hasTutorialDelivery, listingsWithReplies, newGame as newStage5, settleSales, storageUsage, transportFor, updateStage5, vehicleFor, waitForOffers } from './stage5-engine';
 import { hasBonusAuction, requiresLongBed } from './transport';
 import { breakPromise, changeLife, initialLife, isTurntable, lifeScene, lifeScore, referralFor, weekOf } from './life';
 import { houseLevel } from './houses';
@@ -34,7 +34,11 @@ export interface ParkedLot {
   readonly legacyLot: boolean;
 }
 
+import { initialRound, offerAt, type OpenRound } from './open-bidding';
+import { emptyInventory } from './inventory';
+
 export interface Stage7State {
+  readonly round?: OpenRound;
   readonly base: Stage5State;
   readonly calendar: CalendarState;
   readonly flea: FleaState;
@@ -55,10 +59,10 @@ type CalendarAction = 'waitUntilNextPeriod' | 'sleep' | 'wakeUp';
 type FleaNavigation = 'openFleaVisit' | 'cancelFleaVisit' | 'confirmFleaVisit' | 'closeFleaReceipt';
 type FleaPacking = 'packForFlea' | 'unpackFlea' | 'toggleFleaBaggage';
 type PhotoAction = 'openVisitPhoto' | 'closeVisitPhoto';
-type SimpleAction = CalendarAction | FleaNavigation | PhotoAction | 'giveBirthdayFlowers' | 'authorizeJob' | 'parkLot'
+type SimpleAction = 'startAuction' | 'auctionTick' | 'skipAsk' | CalendarAction | FleaNavigation | PhotoAction | 'giveBirthdayFlowers' | 'authorizeJob' | 'parkLot'
   | 'displayTurntable' | 'retrieveTurntable' | 'openReferral';
 
-export type Stage7Command = Stage5Command | PhoneCommand | {
+type Command = Stage5Command | PhoneCommand | {
   [Action in SimpleAction]: { readonly type: Action; readonly expectedRevision: number };
 }[SimpleAction] | {
   [Action in FleaPacking]: { readonly type: Action; readonly expectedRevision: number; readonly itemId: string };
@@ -71,9 +75,13 @@ export type Stage7Command = Stage5Command | PhoneCommand | {
   | { readonly type: 'toggleVehicleGoal'; readonly expectedRevision: number; readonly target: ShowroomTarget }
   | { readonly type: 'detachTrailer'; readonly expectedRevision: number; readonly target: Extract<ShowroomTarget, { category: 'trailers' }> };
 
+export type Stage7Command = Command & { readonly auctionRef?: { readonly lotNumber: number; readonly offerIndex: number } };
 export type Stage7Dispatch = (command: Stage7Command) => void;
 
 export interface Stage7View {
+  readonly closingCall?: string;
+  readonly auction?: { offerIndex: number; running: boolean; ask: number; standing: number; leader: string | undefined; elapsed: number; skipped: boolean;
+    participants: readonly { id: string; name: string; out: boolean; amount: number | undefined }[] };
   readonly screen: Stage5View;
   readonly jobUnlocked: boolean;
   readonly parkedLots: readonly { lotNumber: number; purchasePrice: number }[];
@@ -128,7 +136,7 @@ export function migrateStage5(base: Stage5State): Stage7State {
 }
 
 export function newGame(seed?: number): Stage7State {
-  return migrateStage5({ ...newStage5(seed), transport: { model: 'scooter' } });
+  return migrateStage5({ ...newStage5(seed), legacyExcess: 0, transport: { model: 'scooter' } });
 }
 
 function canUseBonusAuction(state: Stage7State): boolean {
@@ -340,13 +348,53 @@ function maintainLife(state: Stage7State, next: Stage7State): Stage7State {
 }
 
 export function applyCommand(state: Stage7State, command: Stage7Command): Stage7State {
-  return maintainPhone(state, maintainLife(state, reduce(state, command)), command);
+  const next = maintainPhone(state, maintainLife(state, reduce(state, command)), command);
+  if (next === state || next.base.legacyExcess === undefined) return next;
+  const excess = projectedExcess(next.base);
+  if (excess > next.base.legacyExcess) return state;
+  return excess === next.base.legacyExcess ? next : { ...next, base: { ...next.base, legacyExcess: excess } };
 }
 
 function reduce(state: Stage7State, command: Stage7Command): Stage7State {
   const { base, calendar, flea, paidVisit, familyDate } = state;
   const profile = base.base;
   if (profile.game.revision !== command.expectedRevision) return state;
+  const game = profile.game;
+  if (command.auctionRef && (game.phase !== 'inspection' || base.lotEdition !== 12 ||
+    game.lotNumber !== command.auctionRef.lotNumber || (state.round?.bids.length ?? 0) !== command.auctionRef.offerIndex)) return state;
+  if (base.lotEdition === 12 && game.phase === 'inspection') {
+    const round = state.round ?? initialRound;
+    const offer = offerAt(game.lot, game.lotSeed ?? 0, round, economyFor(base).advancePrice);
+    const record = (next: OpenRound) => ({ ...state, round: next, base: updateStage5(base, {}) });
+    const bid = (id: string) => record({ ...initialRound, bids: [...round.bids, id] });
+    if (command.type === 'startAuction') return state.round ? state : record(initialRound);
+    if (command.type === 'bid') return !round.skipped && offer.ask <= game.bank && offer.leader !== 'player' ? bid('player') : state;
+    if (command.type === 'skipAsk') return !round.skipped && offer.leader !== 'player' ? record({ ...round, skipped: true }) : state;
+    if (command.type === 'pass' && offer.leader === 'player') return state;
+    if (command.type === 'auctionTick') {
+      if (!state.round) return state;
+      const elapsed = round.elapsed + 1;
+      if (offer.next && elapsed >= offer.next.delay) return bid(offer.next.id);
+      if (elapsed < 10) return record({ ...round, elapsed });
+      if (offer.leader === 'player') {
+        const bought = { ...game, ...emptyInventory, revision: game.revision + 1, phase: 'reveal' as const,
+          activeOpponentIds: [], bank: game.bank - offer.standing, purchasePrice: offer.standing };
+        const { round: _closed, ...rest } = state;
+        return { ...rest, base: { ...base, base: { ...profile, relationshipOpen: false, game: bought } } };
+      }
+      const closed = reduce(state, { type: 'pass', expectedRevision: game.revision });
+      return { ...closed, round };
+    }
+    if (command.type === 'pass' && state.round) {
+      const { round: _closed, ...rest } = state;
+      return reduce(rest, command);
+    }
+  }
+  if (command.type === 'auctionTick' || command.type === 'startAuction' || command.type === 'skipAsk') return state;
+  if (game.phase === 'result' && state.round && command.type === 'nextLot') {
+    const { round: _closed, ...rest } = state;
+    return reduce(rest, command);
+  }
   if (command.type === 'phone') return applyPhone(state, command);
   if (command.type === 'confirmMoveIn' && relationshipTier(phoneFor(state)) !== 'Близкие отношения') return state;
   if (command.type === 'authorizeJob') {
@@ -555,9 +603,32 @@ export function getView(state: Stage7State): Stage7View {
     : stage5.phase === 'relationship' && relationshipTier(phoneFor(state)) !== 'Близкие отношения'
       ? { ...stage5, allowedActions: stage5.allowedActions.filter(action => action !== 'confirmMoveIn') } : stage5;
   const homeScreen = screen.phase === 'home' && state.personalCar ? { ...screen, personalCar: state.personalCar } : screen;
+  let auction: Stage7View['auction'];
+  let closingCall: string | undefined;
+  if (base.lotEdition === 12 && game.phase === 'inspection') {
+    const round = state.round ?? initialRound;
+    const offer = offerAt(game.lot, game.lotSeed ?? 0, round, economy.advancePrice);
+    const bidders = [...game.lot.opponents, { id: 'player', name: 'Вы', limit: game.bank }];
+    auction = { ...round, offerIndex: round.bids.length, running: state.round !== undefined, ask: offer.ask, standing: offer.standing, leader: offer.leader,
+      participants: bidders.map(({ id, name, limit }) => ({ id, name, amount: offer.amounts.get(id),
+        out: state.round !== undefined && id !== offer.leader && limit < offer.ask })) };
+  } else if (game.phase === 'result' && state.round) {
+    const offer = offerAt(game.lot, game.lotSeed ?? 0, state.round, economy.advancePrice);
+    const winner = game.lot.opponents.find(opponent => opponent.id === offer.leader);
+    closingCall = winner ? `Победитель — ${winner.name}. Цена ${offer.standing.toLocaleString('ru-RU')} ₽.` : 'Ставок нет. Лот остался непроданным.';
+  }
+  const auctionScreen = auction && homeScreen.phase === 'inspection' ? {
+    ...homeScreen, nextBidAmount: auction.ask,
+    allowedActions: homeScreen.allowedActions.filter(action => {
+      if (action === 'pass') return auction.leader !== 'player';
+      if (action === 'bid') return auction.ask <= homeScreen.bank && auction.leader !== 'player' && !auction.skipped;
+      return true;
+    }),
+  } : homeScreen;
   return {
+    ...(auction ? { auction } : {}), ...(closingCall ? { closingCall } : {}),
     screen: displayed && (screen.phase === 'garage' || screen.phase === 'market')
-      ? { ...screen, items: screen.items.filter(({ id }) => id !== displayed.id) } : homeScreen,
+      ? { ...screen, items: screen.items.filter(({ id }) => id !== displayed.id) } : auctionScreen,
     vehicle, phone: phoneView(state), jobUnlocked: state.jobUnlocked === true,
     marketUnread: base.listings.flatMap(marketOffers).filter(({ unread, closed }) => unread && !closed).length,
     sellerReviews: base.reviews ?? [],
@@ -576,7 +647,7 @@ export function getView(state: Stage7State): Stage7View {
         ...(displayed ? { display: displayed.name } : {}), ...(candidate ? { displayCandidate: candidate.name } : {}) },
     },
     ...(game.phase === 'inspection' || game.phase === 'bidding' ? { auctionTransport: {
-      garageFree: capacityLimit(base.capacityUpgrades, 'garage') - storageUsage(base.items, false),
+      garageFree: Math.max(0, houseLimit(base) - storageUsage(base.items, false, base.legacyExcess !== undefined)),
       tutorialDelivery: hasTutorialDelivery(vehicle.model, game),
       longLoad: base.transport && (vehicle.model === 'scooter' || vehicle.model === 'zhiguli')
         ? game.lot.visibleFinds.find(({ name }) => requiresLongBed(name))?.name ?? null : null,

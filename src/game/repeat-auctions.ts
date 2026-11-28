@@ -73,6 +73,7 @@ const templates: Readonly<Record<AuctionTier, readonly [Template, Template]>> = 
 interface RepeatFind extends LotFind {
   readonly rarity: Rarity;
   readonly catalogId: CandidateId;
+  readonly poolFallback?: string;
 }
 
 export interface RepeatLot extends GarageLot<RepeatScene> {
@@ -118,7 +119,8 @@ function chooseItem(pool: readonly CandidateId[], weights: readonly [number, num
   const ticket = random() * 100;
   const rarity = rarities[ticket < weights[0] ? 0 : ticket < weights[0] + weights[1] ? 1 : 2];
   const candidates = pool.filter((id) => repeatCatalog[id].rarity === rarity);
-  return candidates[Math.floor(random() * candidates.length)]!;
+  const available = candidates.length ? candidates : pool;
+  return available[Math.floor(random() * available.length)]!;
 }
 
 function find(catalogId: CandidateId, condition: Condition, id: string, price: (min: number, max: number) => number, pricing: RepeatPricing): RepeatFind {
@@ -132,10 +134,23 @@ function find(catalogId: CandidateId, condition: Condition, id: string, price: (
   };
 }
 
-function fill(template: Template, lotNumber: number, create: (pool: readonly CandidateId[], id: string) => RepeatFind): Contents {
+function fill(template: Template, lotNumber: number, create: (pool: readonly CandidateId[], id: string) => RepeatFind, distinct = false): Contents {
   const prefix = `lot-${lotNumber}`;
   return {
-    visibleFinds: template.visible.map((pool, index) => create(pool, `${prefix}-visible-${index + 1}`)),
+    visibleFinds: template.visible.reduce<RepeatFind[]>((items, pool, index) => {
+      const unused = (id: CandidateId) => !items.some(item => item.name === repeatCatalog[id].name);
+      let available = distinct ? pool.filter(unused) : pool;
+      let reason: string | undefined;
+      if (!available.length) {
+        const neighbor = pool === workshop ? household : pool === household ? workshop :
+          pool === audio ? equipment : pool === equipment ? audio : pool === ceramic ? heirlooms : ceramic;
+        available = neighbor.filter(unused);
+        reason = 'Исчерпаны разные видимые вещи основного семейства';
+      }
+      const item = create(available, `${prefix}-visible-${index + 1}`);
+      items.push(reason ? { ...item, poolFallback: reason } : item);
+      return items;
+    }, []),
     boxes: template.boxes.map((slots, index) => {
       const id = `${prefix}-box-${index + 1}`;
       return {
@@ -147,17 +162,18 @@ function fill(template: Template, lotNumber: number, create: (pool: readonly Can
   };
 }
 
-function fallbackContents(template: Template, lotNumber: number, target: number, pricing: RepeatPricing): Contents {
-  const slots = [...template.visible, ...template.boxes.flat()];
-  let remaining = target - slots.reduce((sum, pool) => sum + (pricing.ranges?.[pool[0]!][1][0] ?? repeatCatalog[pool[0]!].conditions.worn.range[0]), 0);
+function fallbackContents(template: Template, lotNumber: number, target: number, pricing: RepeatPricing, distinct: boolean): Contents {
+  const cheapest = fill(template, lotNumber, (pool, id) => find(pool[0]!, 'worn', id, min => min, pricing), distinct);
+  const all = [...cheapest.visibleFinds, ...cheapest.boxes.flatMap(box => box.contents)];
+  let remaining = Math.max(0, target - all.reduce((sum, item) => sum + item.salePrice, 0));
   return fill(template, lotNumber, (pool, id) => find(pool[0]!, 'worn', id, (min, max) => {
-    const extra = Math.min(max - min, Math.max(0, remaining));
+    const extra = Math.min(max - min, remaining);
     remaining -= extra;
     return min + extra;
-  }, pricing));
+  }, pricing), distinct);
 }
 
-export function generateLot(tier: AuctionTier, seed: number, lotNumber: number, pricing: RepeatPricing = legacyPricing, openingBid = openingBidFor(tier, seed)): RepeatLot {
+export function generateLot(tier: AuctionTier, seed: number, lotNumber: number, pricing: RepeatPricing = legacyPricing, openingBid = openingBidFor(tier, seed), distinct = false): RepeatLot {
   const template = templateFor(tier, seed);
   const random = seededRandom(draw(seed).word);
   const { budget: [min, max], weights } = pricing.tiers[tier];
@@ -170,7 +186,7 @@ export function generateLot(tier: AuctionTier, seed: number, lotNumber: number, 
       const item = chooseItem(pool, weights, random);
       const condition = conditionOrder[Math.floor(random() * conditionOrder.length)]!;
       return find(item, condition, id, (low, high) => low + Math.floor(random() * (high - low + 1)), pricing);
-    });
+    }, distinct);
     const all = [...candidate.visibleFinds, ...candidate.boxes.flatMap(({ contents }) => contents)];
     const saleValue = all.reduce((sum, item) => sum + item.salePrice, 0);
     const gap = Math.abs(targetValue - saleValue);
@@ -180,7 +196,7 @@ export function generateLot(tier: AuctionTier, seed: number, lotNumber: number, 
     if (gap <= Math.max(2, targetValue * tolerance)) break;
   }
 
-  const content = closest ?? fallbackContents(template, lotNumber, targetValue, pricing);
+  const content = closest ?? fallbackContents(template, lotNumber, targetValue, pricing, distinct);
   return {
     ...content,
     targetValue,

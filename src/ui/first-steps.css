@@ -43,7 +43,7 @@
 .sales-help li + li { margin-block-start: .5rem; }
 
 @media (min-width: 960px) {
-  .auction-layout > .first-step { grid-column: 2; }
+  .auction-layout > .first-step { grid-column: 1 / -1; }
 }
 
 @media (max-width: 480px) {

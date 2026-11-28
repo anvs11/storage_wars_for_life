@@ -1,6 +1,6 @@
 import { jobStations, prologueFrames, roomNames } from '../game/stage5-contract';
 import type { Stage5Command } from '../game/stage5-contract';
-import { applyCommand, capacityLimit, economyFor, jewelryLimit, migrateStage4, openCargoItems, stage6Defaults, storageUsage, transportBlock, transportLoad, vehicleFor } from '../game/stage5-engine';
+import { applyCommand, houseLimit, projectedExcess, capacityLimit, economyFor, jewelryLimit, migrateStage4, openCargoItems, stage6Defaults, storageUsage, transportBlock, transportLoad, vehicleFor } from '../game/stage5-engine';
 import { trailerIds, transportModels } from '../game/transport';
 import type { TransportState } from '../game/transport';
 import type { OwnedItem, Stage5State } from '../game/stage5-engine';
@@ -52,10 +52,10 @@ export function isTransport(value: unknown): value is TransportState {
     : exactKeys(value, ['model']);
 }
 
-export function isStage5State(value: unknown, boxed: readonly OwnedItem[] = [], lastAuctionNumber?: number): value is Stage5State {
+export function isStage5State(value: unknown, boxed: readonly OwnedItem[] = [], lastAuctionNumber?: number, modern = false): value is Stage5State {
   if (!isRecord(value) || !exactKeys(value, [
     'base', 'opening', 'room', 'legacyLot', 'items', 'cargo', 'listings', 'deals', 'lastSale', 'lastDeal', 'job', 'jobIncorrect',
-    'lotEdition', 'capacityUpgrades', 'baggageArrived', ...(Object.hasOwn(value, 'reviews') ? ['reviews'] : []),
+    ...(modern ? ['legacyExcess'] : []), 'lotEdition', 'capacityUpgrades', 'baggageArrived', ...(Object.hasOwn(value, 'reviews') ? ['reviews'] : []),
     ...(Object.hasOwn(value, 'transport') ? ['transport'] : []),
     ...(Object.hasOwn(value, 'workshop') ? ['workshop'] : []),
     ...(Object.hasOwn(value, 'house') ? ['house'] : []),
@@ -66,7 +66,7 @@ export function isStage5State(value: unknown, boxed: readonly OwnedItem[] = [], 
     typeof review.text === 'string' && [1, 2, 3, 4, 5].some(stars => stars === review.stars)))) return false;
   const { base, opening, room, legacyLot, items, cargo, listings, deals, lastSale, lastDeal, job, jobIncorrect,
     lotEdition, capacityUpgrades, baggageArrived, transport } = value;
-  if (typeof legacyLot !== 'boolean' || (lotEdition !== 5 && lotEdition !== 6 && lotEdition !== 7) ||
+  if (typeof legacyLot !== 'boolean' || (lotEdition !== 5 && lotEdition !== 6 && lotEdition !== 7 && !(modern && lotEdition === 12)) ||
       typeof baggageArrived !== 'boolean' || !areIds(capacityUpgrades, ['garage', 'car', 'shelves']) ||
       (transport !== undefined && !isTransport(transport)) ||
       !isStage4State(base, economyFor({ legacyLot, lotEdition }), true)) return false;
@@ -115,9 +115,13 @@ export function isStage5State(value: unknown, boxed: readonly OwnedItem[] = [], 
   const shippable = game.phase !== 'reveal' ||
     (transportLoad(vehicle, game, selected) <= vehicleFor(vehicle).capacity &&
       selected.every(item => !transportBlock(vehicle, game, item, 0)));
-  return shippable &&
-    storageUsage(stored, false) <= capacityLimit(capacityUpgrades, 'garage') &&
-    storageUsage(stored, true) <= jewelryLimit;
+  const legacyLimit = capacityLimit(capacityUpgrades, 'garage');
+  const checked = value as unknown as Stage5State;
+  const fits = modern
+    ? isMoney(value.legacyExcess) && value.legacyExcess <= Math.max(0, legacyLimit - houseLimit(checked))
+      && projectedExcess(checked) === value.legacyExcess
+    : storageUsage(stored, false) <= legacyLimit;
+  return shippable && fits && storageUsage(stored, true) <= jewelryLimit;
 }
 
 export function decodeStage5(serialized: string | null): Stage5State | null {

@@ -5,9 +5,14 @@ import type { FleaView, Stage7Dispatch } from '../game/stage7-engine';
 import door from './assets/story-door.jpg';
 import rain from './assets/story-rain.jpg';
 import keys from './assets/story-keys-zhiguli.jpg';
-import { placeProp, sceneSprite, stackedBoxes } from './scene-sprites';
+import { placeLotStage, placeProp, sceneSprite, screenDecor, stackedBoxes } from './scene-sprites';
 import './object-scenes.css';
 import bar from './assets/stage5-bar.jpg';
+import garage2 from './assets/house-garage-2.jpg';
+import garage3 from './assets/house-garage-3.jpg';
+import garage4 from './assets/house-garage-4.jpg';
+import garage5 from './assets/house-garage-5.jpg';
+import { outdoorFind } from '../game/stage5-engine';
 import garage from './assets/stage5-garage.jpg';
 import { placeGarageItems } from './garage-layout';
 import { sellerProfile } from './seller-profile';
@@ -52,6 +57,7 @@ function art(src: string, alt: string): HTMLImageElement {
 }
 
 function capacityLabel(label: string, capacity: Capacity): string {
+  if (capacity.used > capacity.limit) return `${label} · ${capacity.used}/${capacity.limit}. Освободи ${capacity.used - capacity.limit} мест для новых вещей.`;
   return `${label} · занято ${capacity.used} из ${capacity.limit}, свободно ${capacity.limit - capacity.used}`;
 }
 
@@ -61,7 +67,8 @@ function itemFacts(item: GarageItemView): HTMLDListElement {
   addFact(facts, 'Риск поломки', `${breakageChance[item.condition]}%`);
   const { min, max } = item.estimate;
   addFact(facts, 'Оценка', min === max ? rubles(min) : `${rubles(min)}–${rubles(max)}`);
-  addFact(facts, 'Занимает мест', String(item.size));
+  if (outdoorFind(item)) addFact(facts, 'Хранение', `У ворот · 0 мест в гараже · груз ${item.size}`);
+  else addFact(facts, 'Занимает мест', String(item.size));
   return facts;
 }
 
@@ -146,6 +153,8 @@ export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5
       ? art(closed ? caseClosed : caseOpen, closed ? 'Закрытый чемодан.' : 'Раскрытый чемодан, вид сверху.')
       : art(scene.image, scene.alt));
 
+    placeLotStage(close, view.layoutSeed);
+    if (view.screenId) close.append(screenDecor(view.screenId));
     const baggage = view.baggage;
     function itemPicture(item: GarageItemView): HTMLImageElement | null {
       if (!baggage) return sceneSprite(item.name);
@@ -178,7 +187,7 @@ export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5
           details.append(showcase);
         }
         details.append(element('p', 'hub__detail', item.clue), itemFacts(item));
-        if (item.tutorialDelivery) details.append(element('p', 'hub__detail', 'Учебный вывоз не занимает место в сумке. В домашнем гараже велосипед займёт 4 места.'));
+        if (item.tutorialDelivery) details.append(element('p', 'hub__detail', 'Учебный вывоз не занимает место в сумке. После доставки велосипед будет у ворот.'));
         if (item.selected) details.append(element('p', 'cargo-picked', item.tutorialDelivery ? 'Доставка выбрана'
           : view.baggage ? 'Выбрано для гаража' : 'Место в транспорте занято'));
         if (item.blocked) details.append(element('p', 'hub__reason', item.blocked));
@@ -205,6 +214,7 @@ export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5
     for (const [index, box] of view.boxes.entries()) {
       const label = view.baggage ? 'Открыть чемодан' : box.name === 'Вещи за ширмой' ? 'Отодвинуть ширму' : `Открыть: ${box.name}`;
       const open = control(label, { type: 'openBox', boxId: box.id }, `open:${box.id}`);
+      open.dataset.instanceId = box.id;
       if (staged) {
         open.className = 'cargo-target';
         open.setAttribute('aria-label', label);
@@ -214,7 +224,7 @@ export function mountNewScene(root: HTMLElement, view: NewView, dispatch: Stage5
           ? stackedBoxes() : sceneSprite(box.name);
         if (sprite) open.prepend(sprite);
         if (box.name === 'Вещи за ширмой') open.prepend(stackedBoxes());
-        placeProp(open, box.name, index, true);
+        placeProp(open, box.name, Number(box.id.match(/-box-(\d+)$/)?.[1] ?? index + 1) - 1, true);
         finds.append(open);
       } else otherFinds.append(open);
     }
@@ -399,19 +409,11 @@ function renderGarage(screen: HTMLElement, view: RoomView, button: Control, send
   const storage = element('section', 'garage-storage');
   storage.append(element('p', 'stage5__capacity', capacityLabel('Гараж', view.garage)));
   if (view.jewelry) storage.append(element('p', 'stage5__capacity', capacityLabel('Шкатулка', view.jewelry)));
-  const upgrade = view.upgrades?.find(({ target }) => target === 'garage' || target === 'shelves');
-  if (upgrade) {
-    const details = element('details', 'garage-storage__upgrade');
-    const buy = button(`Подтвердить за ${rubles(upgrade.price)}`, { type: 'buyCapacity', target: upgrade.target }, `upgrade:${upgrade.target}`, true);
-    buy.disabled = !upgrade.available;
-    details.append(element('summary', '', upgrade.target === 'shelves' ? 'Поставить второй стеллаж' : 'Поставить стеллаж'), element('p', 'hub__detail',
-      `${upgrade.current} → ${upgrade.next} мест · ${rubles(upgrade.price)}`), buy);
-    storage.append(details);
-  }
   const scene = element('section', 'shelf-scene');
-  scene.style.backgroundImage = `url("${garage}")`;
+
   scene.setAttribute('aria-label', 'Вещи в гараже');
   const level = houseLevel(view.house, view.workshop, Boolean(view.homeImproved));
+  scene.style.backgroundImage = `url("${[garage,garage2,garage3,garage4,garage5][level - 1]}")`;
   const interiors = ['Бабушкин гараж', 'Домашняя кладовая', 'Ремонтная мастерская', 'Гараж с галереей', 'Коллекционное хранилище'] as const;
   const plaque = element('span', 'garage-plaque', interiors[level - 1]);
   scene.append(plaque);
@@ -446,6 +448,9 @@ function renderGarage(screen: HTMLElement, view: RoomView, button: Control, send
       const workshop = element('details', 'stage5__confirm');
       const confirm = button(`Подтвердить ремонт за ${rubles(quote.price)}`, { type: 'repairItem', itemId: item.id }, `repair:${item.id}`, true);
       confirm.disabled = !quote.available;
+      if (view.listings.some(listing => listing.itemId === item.id)) workshop.append(element('p', '', 'После ремонта объявление будет снято вместе с откликами.'));
+      workshop.style.setProperty('--bench', `url("${garage3}")`);
+      workshop.classList.add('repair-station');
       workshop.append(element('summary', '', `Ремонт · ${rubles(quote.price)}`),
         element('p', 'hub__detail', `Риск поломки после ремонта · ${breakageChance.good}%. Оценка · ${rubles(quote.estimate.min)}–${rubles(quote.estimate.max)}`), confirm);
       details.append(workshop);
@@ -461,7 +466,18 @@ function renderGarage(screen: HTMLElement, view: RoomView, button: Control, send
   }
 
   dialog.append(details);
-  const overflow = placeGarageItems(scene, view.items, Number(view.garage.limit >= 16) + Number(view.garage.limit >= 24), inspect, level);
+  const indoor = view.items.filter(item => !outdoorFind(item));
+  const overflow = placeGarageItems(scene, indoor, inspect, level);
+  const outside = view.items.filter(outdoorFind);
+  if (outside.length) {
+    const yard = element('details', 'garage-outdoor');
+    yard.append(element('summary', '', 'У ворот · ' + outside.length));
+    const area = element('div', 'shelf-scene');
+    area.style.backgroundImage = `url("${yards[level].image}")`;
+    const more = placeGarageItems(area, outside, inspect, level, true);
+    yard.append(area, more);
+    storage.append(yard);
+  }
   const tray = element('div', 'garage-tray');
   for (const item of view.items.slice(0, 3)) {
     const picture = sceneSprite(item.name);
